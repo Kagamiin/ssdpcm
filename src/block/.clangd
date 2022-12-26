@@ -1,0 +1,2 @@
+CompileFlags:
+    Add: ["-xc", "-Wall", "-Wextra", "-O3", "-Ofast", "-I../include"]

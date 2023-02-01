@@ -20,7 +20,7 @@ write_block_params (FILE *dest, uint8_t initial_sample, uint8_t length)
 	fprintf(dest, "length := %hhd\n", length);
 }
 
-//static const char out_decoded_suffix[] = "decoded.u8";
+static const char out_decoded_suffix[] = "decoded.u8";
 static const char out_bitstream_suffix[] = "bits.bin";
 static const char out_slopes_suffix[] = "slopes.bin";
 static const char out_params_suffix[] = "params.inc";
@@ -38,39 +38,68 @@ main (int argc, char **argv)
 	sample_t slopes[4];
 	size_t read_data;
 	FILE *infile;
-	//FILE *out_decoded;
+	FILE *out_decoded;
 	FILE *out_bitstream, *out_slopes, *out_params;
-	//char *out_decoded_name;
+	char *out_decoded_name;
 	char *out_bitstream_name, *out_slopes_name, *out_params_name;
 	size_t outname_length;
 	int block_count = 0, superblock_index = 0;
 	sigma_tracker sigma;
 	ssdpcm_block block;
 	sample_t temp_initial_sample;
+	int bits_per_sample;
+	bool comb_filter = FALSE;
 
 	block.deltas = delta_buffer;
 	block.slopes = slopes;
-	block.num_deltas = 4;
 	block.length = sizeof(u8_buffer);
-
-	sigma.methods = sigma_u7_overflow;
+	
+	if (argc < 4)
+	{
+		exit_error("Usage: nes_encoder (ss1|ss2) infile.u8 outfiles_name");
+	}
+	
+	if (!strcmp("ss1", argv[1]))
+	{
+		bits_per_sample = 1;
+	}
+	else if (!strcmp("ss1c", argv[1]))
+	{
+		bits_per_sample = 1;
+		comb_filter = TRUE;
+	}
+	else if (!strcmp("ss2", argv[1]))
+	{
+		bits_per_sample = 2;
+	}
+	else
+	{
+		bits_per_sample = 0;
+		exit_error("Usage: nes_encoder (ss1|ss1c|ss2) infile.u8 outfiles_name");
+	}
+	
+	block.num_deltas = bits_per_sample * 2;
+	
+	if (comb_filter)
+	{
+		sigma.methods = sigma_u7_overflow_comb;
+	}
+	else
+	{
+		sigma.methods = sigma_u7_overflow;
+	}
 	sigma.methods->alloc(&sigma.state);
 	
 	encoded_buffer.byte_buf.buffer = encoded_data;
 	encoded_buffer.byte_buf.buffer_size = sizeof(encoded_data);
 	
-	if (argc < 3)
-	{
-		exit_error("Usage: nes_encoder infile.u8 outfiles_name");
-	}
-	
-	outname_length = strnlen(argv[2], 1024);
-	//out_decoded_name = malloc(outname_length + sizeof(out_decoded_suffix) + 19);
+	outname_length = strnlen(argv[3], 1024);
+	out_decoded_name = malloc(outname_length + sizeof(out_decoded_suffix) + 19);
 	out_bitstream_name = malloc(outname_length + sizeof(out_bitstream_suffix) + 19);
 	out_slopes_name = malloc(outname_length + sizeof(out_slopes_suffix) + 19);
 	out_params_name = malloc(outname_length + sizeof(out_params_suffix) + 19);
 	
-	infile = fopen(argv[1], "rb");
+	infile = fopen(argv[2], "rb");
 	if (!infile)
 	{
 		exit_error("Could not read input file.");
@@ -80,20 +109,20 @@ main (int argc, char **argv)
 	block.initial_sample = u8_buffer[0] >> 1;
 	temp_initial_sample = block.initial_sample;
 	
+	snprintf(out_decoded_name, outname_length + sizeof(out_decoded_suffix) + 19, "%s_%s", argv[3],
+		out_decoded_suffix);
+	out_decoded = fopen(out_decoded_name, "wb");
+	
 	while (read_data == sizeof(u8_buffer))
 	{
 		sample_t temp_last_sample = block.initial_sample;
-		
-		//snprintf(out_decoded_name, outname_length + sizeof(out_decoded_suffix) + 19, "%s_%d_%s", argv[2],
-		//	superblock_index, out_decoded_suffix);
-		snprintf(out_bitstream_name, outname_length + sizeof(out_bitstream_suffix) + 19, "%s_%d_%s", argv[2],
+		snprintf(out_bitstream_name, outname_length + sizeof(out_bitstream_suffix) + 19, "%s_%d_%s", argv[3],
 			superblock_index, out_bitstream_suffix);
-		snprintf(out_slopes_name, outname_length + sizeof(out_slopes_suffix) + 19, "%s_%d_%s", argv[2],
+		snprintf(out_slopes_name, outname_length + sizeof(out_slopes_suffix) + 19, "%s_%d_%s", argv[3],
 			superblock_index, out_slopes_suffix);
-		snprintf(out_params_name, outname_length + sizeof(out_params_suffix) + 19, "%s_%d_%s", argv[2],
+		snprintf(out_params_name, outname_length + sizeof(out_params_suffix) + 19, "%s_%d_%s", argv[3],
 			superblock_index, out_params_suffix);
 		
-		//out_decoded = fopen(out_decoded_name, "wb");
 		out_bitstream = fopen(out_bitstream_name, "wb");
 		out_slopes = fopen(out_slopes_name, "wb");
 		out_params = fopen(out_params_name, "w");
@@ -125,7 +154,7 @@ main (int argc, char **argv)
 			
 			for (i = 0; i < block.length; i++)
 			{
-				err_t rc = put_bits_msbfirst(&encoded_buffer, block.deltas[i], 2);
+				err_t rc = put_bits_msbfirst(&encoded_buffer, block.deltas[i], bits_per_sample);
 				if (rc != E_OK)
 				{
 					fprintf(stderr, "\nrc = %d", rc);
@@ -134,14 +163,17 @@ main (int argc, char **argv)
 			}
 			
 			fwrite(encoded_data, sizeof(uint8_t),
-			       sizeof(encoded_data), out_bitstream);
+			       128 * bits_per_sample / 8, out_bitstream);
 			
-			//sample_filter_comb(sample_buffer, sizeof(u8_buffer), block.initial_sample);
-			sample_encode_u8_overflow(u8_buffer, sample_buffer, sizeof(u8_buffer));
+			if (comb_filter)
+			{
+				sample_filter_comb(sample_buffer, sizeof(u8_buffer), block.initial_sample);
+			}
 			block.initial_sample = temp_last_sample;
 			
-			//sample_convert_u7_to_u8(u8_buffer, u8_buffer, sizeof(u8_buffer));
-			//fwrite(u8_buffer, 1, sizeof(u8_buffer), out_decoded);
+			sample_encode_u8_overflow(u8_buffer, sample_buffer, sizeof(u8_buffer));
+			sample_convert_u7_to_u8(u8_buffer, u8_buffer, sizeof(u8_buffer));
+			fwrite(u8_buffer, 1, sizeof(u8_buffer), out_decoded);
 			
 			read_data = fread(u8_buffer, sizeof(uint8_t), sizeof(u8_buffer), infile);
 		}
@@ -150,7 +182,6 @@ main (int argc, char **argv)
 		temp_initial_sample = temp_last_sample;
 		superblock_index++;
 		
-		//fclose(out_decoded);
 		fclose(out_bitstream);
 		fclose(out_slopes);
 		fclose(out_params);
@@ -159,6 +190,7 @@ main (int argc, char **argv)
 	//fprintf(stderr, "\n%d blocks encoded.\n", block_count);
 	fprintf(stderr, "\nDone.\n");
 	
+	fclose(out_decoded);
 	sigma.methods->free(&(sigma.state));
 	//free(out_decoded_name);
 	free(out_bitstream_name);

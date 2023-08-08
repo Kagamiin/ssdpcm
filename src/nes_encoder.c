@@ -5,25 +5,51 @@
 #include <encode.h>
 #include <sample.h>
 #include <errors.h>
+#include <errno.h>
 
 void
-exit_error (const char *msg)
+exit_error (const char *msg, const char *error)
 {
-	fprintf(stderr, "\nOof!\n%s\n", msg);
+	if (error == NULL)
+	{
+		fprintf(stderr, "\nOof!\n%s\n", msg);
+	}
+	else
+	{
+		fprintf(stderr, "\nOof!\n%s: %s\n", msg, error);
+	}
 	exit(1);
 }
 
 void
 write_block_params (FILE *dest, uint8_t initial_sample, uint8_t length)
 {
-	fprintf(dest, "initial_sample := %hhd\n", initial_sample);
-	fprintf(dest, "length := %hhd\n", length);
+	fprintf(dest, "initial_sample := %hhu\n", initial_sample);
+	fprintf(dest, "length := %hhu\n", length);
 }
 
 static const char out_decoded_suffix[] = "decoded.u8";
 static const char out_bitstream_suffix[] = "bits.bin";
 static const char out_slopes_suffix[] = "slopes.bin";
 static const char out_params_suffix[] = "params.inc";
+
+static const char usage[] = "\
+\033[97mUsage:\033[0m nes_encoder (ss1|ss1c|ss2) infile.u8 outfiles_name\n\
+- The encoding mode can either be:\n\
+  - \033[96mss1\033[0m - 1-bit SSDPCM\n\
+  - \033[96mss1c\033[0m - 1-bit SSDPCM with comb filtering\n\
+  - \033[96mss2\033[0m - 2-bit SSDPCM\n\
+- \033[96minfile.u8\033[0m should be a raw 8-bit unsigned PCM file.\n\
+  You can use an 8-bit unsigned WAV too, but you'll get some garbage in the\n\
+  beginning of the audio. (hint: use Audacity to export raw 8-bit PCM)\n\
+- \033[96moutfiles_name\033[0m is the prefix path for the output files.\n\
+  NOTE: This program generates A LOT of files in the output path.\n\
+- This program doesn't do sample rate conversion. Your input file should\n\
+  already be in the correct sample rate for playback. You can calculate that\n\
+  with the following equation:\n\
+         \033[96msample_rate = 315/88/2 * 1000000 / cycles_per_sample\033[0m\n\
+  where cycles_per_sample is the number of clock cycles between each sample,\n\
+  set either on the delay parameter (for non-IRQ) or timer interrupt (for IRQ)";
 
 err_t put_bits_msbfirst (bitstream_buffer *buf, codeword_t src, uint8_t num_bits);
 
@@ -56,7 +82,7 @@ main (int argc, char **argv)
 	
 	if (argc < 4)
 	{
-		exit_error("Usage: nes_encoder (ss1|ss2) infile.u8 outfiles_name");
+		exit_error(usage, NULL);
 	}
 	
 	if (!strcmp("ss1", argv[1]))
@@ -75,7 +101,7 @@ main (int argc, char **argv)
 	else
 	{
 		bits_per_sample = 0;
-		exit_error("Usage: nes_encoder (ss1|ss1c|ss2) infile.u8 outfiles_name");
+		exit_error(usage, NULL);
 	}
 	
 	block.num_deltas = bits_per_sample * 2;
@@ -102,7 +128,7 @@ main (int argc, char **argv)
 	infile = fopen(argv[2], "rb");
 	if (!infile)
 	{
-		exit_error("Could not read input file.");
+		exit_error("Could not read input file", strerror(errno));
 	}
 	
 	read_data = fread(u8_buffer, sizeof(uint8_t), sizeof(u8_buffer), infile);
@@ -128,7 +154,7 @@ main (int argc, char **argv)
 		out_params = fopen(out_params_name, "w");
 		if (!out_bitstream || !out_slopes || !out_params)
 		{
-			exit_error("Could not open output files.");
+			exit_error("Could not open output files", strerror(errno));
 		}
 		
 		for (block_count = 0; block_count < 256 && read_data == sizeof(u8_buffer); block_count++)
@@ -158,7 +184,7 @@ main (int argc, char **argv)
 				if (rc != E_OK)
 				{
 					fprintf(stderr, "\nrc = %d", rc);
-					exit_error("put_bits_msbfirst returned non-ok status");
+					exit_error("put_bits_msbfirst returned non-ok status", NULL);
 				}
 			}
 			
@@ -187,12 +213,11 @@ main (int argc, char **argv)
 		fclose(out_params);
 	}
 	
-	//fprintf(stderr, "\n%d blocks encoded.\n", block_count);
 	fprintf(stderr, "\nDone.\n");
 	
 	fclose(out_decoded);
 	sigma.methods->free(&(sigma.state));
-	//free(out_decoded_name);
+	free(out_decoded_name);
 	free(out_bitstream_name);
 	free(out_slopes_name);
 	free(out_params_name);

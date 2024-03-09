@@ -3,13 +3,11 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include "verify.h"
 
-typedef enum 
-{
-	FALSE,
-	TRUE
-} bool;
+#define FALSE 0
+#define TRUE 1
 
 typedef uint_fast8_t codeword_t;
 #define CODEWORD_WIDTH 8
@@ -32,5 +30,18 @@ typedef struct
 	buffer_u8 byte_buf;
 	uint8_t bit_index;
 } bitstream_buffer;
+
+typedef enum
+{
+	W_READ,
+	W_WRITE,
+	W_CREATE,
+} wav_open_mode;
+
+typedef enum
+{
+	W_U8,
+	W_S16LE,
+} wav_sample_fmt;
 
 #endif

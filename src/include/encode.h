@@ -39,6 +39,8 @@ typedef struct
 
 uint64_t ssdpcm_encode_bruteforce (ssdpcm_block *dest, sample_t *in, sigma_tracker *sigma);
 
+uint64_t ssdpcm_encode_binary_search (ssdpcm_block *dest, sample_t *in, sigma_tracker *sigma);
+
 uint64_t ssdpcm_block_encode (ssdpcm_block *block, sample_t *in, sigma_tracker *sigma);
 
 /* ------------------------------------------------------------------------- */
@@ -53,6 +55,9 @@ void sigma_tracker_free (void **ext_state);
 uint64_t sigma_generic_calc_error (void **ext_state, codeword_t delta);
 void sigma_generic_advance (void **ext_state);
 
+uint64_t sigma_generic_comb_calc_error (void **ext_state, codeword_t delta);
+void sigma_generic_comb_advance (void **ext_state);
+
 uint64_t sigma_u8_overflow_calc_error (void **ext_state, codeword_t delta);
 void sigma_u8_overflow_advance (void **ext_state);
 
@@ -62,8 +67,14 @@ void sigma_u7_overflow_advance (void **ext_state);
 uint64_t sigma_u7_overflow_comb_calc_error (void **ext_state, codeword_t delta);
 void sigma_u7_overflow_comb_advance (void **ext_state);
 
+uint64_t sigma_u8_overflow_comb_calc_error (void **ext_state, codeword_t delta);
+void sigma_u8_overflow_comb_advance (void **ext_state);
+
 // Generic SSDPCM error tracker, with no sample pre-filter or postprocessing
 extern sigma_tracker_methods sigma_generic;
+
+// Generic SSDPCM error tracker, with simple 2-sample comb filter
+extern sigma_tracker_methods sigma_generic_comb;
 
 // SSDPCM error tracker for non-clamped unsigned 8-bit PCM, with no sample pre-filter or postprocessing
 extern sigma_tracker_methods sigma_u8_overflow;
@@ -73,5 +84,8 @@ extern sigma_tracker_methods sigma_u7_overflow;
 
 // SSDPCM error tracker for non-clamped unsigned 7-bit PCM, with simple 2-sample comb filter
 extern sigma_tracker_methods sigma_u7_overflow_comb;
+
+// SSDPCM error tracker for non-clamped unsigned 7-bit PCM, with simple 2-sample comb filter
+extern sigma_tracker_methods sigma_u8_overflow_comb;
 
 #endif

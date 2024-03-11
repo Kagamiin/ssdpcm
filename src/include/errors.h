@@ -58,8 +58,15 @@ enum
 	E_FILE_NOT_SEEKABLE,
 	E_WRITE_ERROR,
 	E_INVALID_ARGUMENT,
+	E_UNRECOGNIZED_SUBFORMAT,
+	E_INVALID_SUBHEADER,
+	E_NOT_A_SSDPCM_WAV,
+	E_UNRECOGNIZED_MODE,
+	E_TOO_MANY_SLOPES,
+
+	ERROR_CODES_LENGTH, // don't remove
 };
 
-extern const char *error_enum_strs[25];
+extern const char *error_enum_strs[ERROR_CODES_LENGTH];
 
 #endif

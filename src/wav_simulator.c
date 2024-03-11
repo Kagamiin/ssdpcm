@@ -206,6 +206,9 @@ main (int argc, char **argv)
 	case W_S16LE:
 		block.initial_sample = ((int16_t *)byte_buffer)[0];
 		break;
+	default:
+		// unreachable
+		break;
 	}
 
 	while (read_data == block_length)
@@ -217,6 +220,9 @@ main (int argc, char **argv)
 			break;
 		case W_S16LE:
 			sample_decode_s16(sample_buffer, (int16_t *)byte_buffer, block_length);
+			break;
+		default:
+			// unreachable
 			break;
 		}
 		
@@ -237,6 +243,9 @@ main (int argc, char **argv)
 			break;
 		case W_S16LE:
 			sample_encode_s16((int16_t *)byte_buffer, sample_buffer, block_length);
+			break;
+		default:
+			// unreachable
 			break;
 		}
 		

@@ -42,6 +42,18 @@ typedef enum
 {
 	W_U8,
 	W_S16LE,
+	W_SSDPCM,
 } wav_sample_fmt;
+
+typedef enum
+{
+	SS_SS1,
+	SS_SS1C,
+	SS_SS1_6,
+	SS_SS2,
+	SS_SS2_3,
+	
+	NUM_SSDPCM_MODES,
+} ssdpcm_block_mode;
 
 #endif

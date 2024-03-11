@@ -225,8 +225,9 @@ main (int argc, char **argv)
 	block.deltas = delta_buffer;
 	block.slopes = slopes;
 	block.length = block_length;
+	memset(&bitpacker, 0, sizeof(bitstream_buffer));
 	bitpacker.byte_buf.buffer = code_buffer;
-	bitpacker.byte_buf.buffer_size = 
+	bitpacker.byte_buf.buffer_size = code_buffer_size;
 	
 	wav_write_header(outfile);
 	wav_seek(infile, 0, SEEK_SET);
@@ -282,15 +283,18 @@ main (int argc, char **argv)
 
 	while (err == E_OK && ((decode_mode) || (read_data == block_length)))
 	{
+		uint8_t initial_sample_temp[2];
 		if (!decode_mode)
 		{
 			switch (format)
 			{
 			case W_U8:
 				sample_decode_u8(sample_buffer, (uint8_t *)sample_conv_buffer, block_length);
+				sample_encode_u8_overflow(initial_sample_temp, &block.initial_sample, 1);
 				break;
 			case W_S16LE:
 				sample_decode_s16(sample_buffer, (int16_t *)sample_conv_buffer, block_length);
+				sample_encode_s16((int16_t *)initial_sample_temp, &block.initial_sample, 1);
 				break;
 			default:
 				// unreachable
@@ -306,6 +310,9 @@ main (int argc, char **argv)
 				sample_filter_comb(sample_buffer, block_length, block.initial_sample);
 			}
 			
+			bitpacker.byte_buf.offset = 0;
+			bitpacker.bit_index = 0;
+			memset(code_buffer, 0, code_buffer_size);
 			switch (mode)
 			{
 			case SS_SS1:
@@ -347,7 +354,20 @@ main (int argc, char **argv)
 				break;
 			}
 			
-			err = wav_write_ssdpcm_block(outfile, &block.initial_sample, block.slopes, code_buffer);
+			switch (format)
+			{
+			case W_U8:
+				sample_encode_u8_overflow(sample_conv_buffer, block.slopes, block.num_deltas);
+				break;
+			case W_S16LE:
+				sample_encode_s16(sample_conv_buffer, block.slopes, block.num_deltas);
+				break;
+			default:
+				// unreachable
+				break;
+			}
+			
+			err = wav_write_ssdpcm_block(outfile, initial_sample_temp, sample_conv_buffer, code_buffer);
 			if (err != E_OK)
 			{
 				char err_msg[256];
@@ -379,6 +399,8 @@ main (int argc, char **argv)
 		if (decode_mode)
 		{
 			int i;
+			bitpacker.byte_buf.offset = 0;
+			bitpacker.bit_index = 0;
 			switch (mode)
 			{
 			case SS_SS1:
@@ -452,7 +474,7 @@ main (int argc, char **argv)
 				exit_error(err_msg, strerror(errno_copy));
 			}
 			
-			err = wav_read_ssdpcm_block(infile, &block.initial_sample, block.slopes, code_buffer);
+			err = wav_read_ssdpcm_block(infile, initial_sample_temp, sample_conv_buffer, code_buffer);
 			if (err != E_OK)
 			{
 				if (err == E_END_OF_STREAM)
@@ -465,6 +487,20 @@ main (int argc, char **argv)
 				// Try to properly close the WAV file anyway
 				wav_close(outfile, &err);
 				exit_error(err_msg, strerror(errno_copy));
+			}
+			switch (format)
+			{
+			case W_U8:
+				sample_decode_u8(block.slopes, sample_conv_buffer, block.num_deltas / 2);
+				//sample_decode_u8(&block.initial_sample, initial_sample_temp, 1);
+				break;
+			case W_S16LE:
+				sample_decode_s16(block.slopes, sample_conv_buffer, block.num_deltas / 2);
+				//sample_decode_s16(&block.initial_sample, (int16_t *)initial_sample_temp, 1);
+				break;
+			default:
+				// unreachable
+				break;
 			}
 		}
 		

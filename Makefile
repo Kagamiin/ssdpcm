@@ -61,6 +61,25 @@ objects_wave := \
 	wav_simulator.o \
 	wav_file.o \
 	error_strs.o
+
+objects_enc := \
+	block_codec.o \
+	sigma.o \
+	sigma_generic.o \
+	sigma_generic_comb.o \
+	sigma_u8_overflow.o \
+	sigma_u8_overflow_comb.o \
+	sigma_u7_overflow.o \
+	sigma_u7_overflow_comb.o \
+	encode_bruteforce.o \
+	encode_binary_search.o \
+	sample_conv.o \
+	sample_filter.o \
+	bit_pack_unpack.o \
+	wav_file.o \
+	error_strs.o \
+	range_coder.o \
+	encoder.o \
 	
 
 
@@ -70,7 +89,10 @@ vpath %.o $(BUILD_DIR)
 
 .PHONY: build_dirs all clean
 
-all: build_dirs $(BUILD_DIR)/nes_encoder $(BUILD_DIR)/wav_simulator
+all: build_dirs $(BUILD_DIR)/nes_encoder $(BUILD_DIR)/wav_simulator $(BUILD_DIR)/encoder
+
+$(BUILD_DIR)/encoder: $(objects_enc)
+	$(CC) $(CFLAGS) -o $(BUILD_DIR)/encoder -lm $(patsubst %,$(BUILD_DIR)/%,$(objects_enc))
 
 $(BUILD_DIR)/wav_simulator: $(objects_wave)
 	$(CC) $(CFLAGS) -o $(BUILD_DIR)/wav_simulator -lm $(patsubst %,$(BUILD_DIR)/%,$(objects_wave))
@@ -85,4 +107,4 @@ build_dirs:
 	@mkdir -p $(BUILD_DIR) 2>/dev/null
 
 clean:
-	rm -f $(BUILD_DIR)/*.o $(BUILD_DIR)/nes_encoder
+	rm -f $(BUILD_DIR)/*.o $(BUILD_DIR)/nes_encoder $(BUILD_DIR)/wav_simulator $(BUILD_DIR)/encoder

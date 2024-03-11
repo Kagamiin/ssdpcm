@@ -102,7 +102,8 @@ range_decode_ss2_3(uint8_t *input, codeword_t *output, size_t num_bytes)
 	debug_assert(input != NULL);
 	debug_assert(output != NULL);
 	debug_assert(num_bytes != 0);
-	size_t i, j, total = 0;
+	size_t j, total = 0;
+	int i;
 	while (total < num_bytes)
 	{
 		uint8_t num_7 = 0;
@@ -113,8 +114,9 @@ range_decode_ss2_3(uint8_t *input, codeword_t *output, size_t num_bytes)
 			
 			num_7 >>= 1;
 			num_7 |= (byte & 0x01) << 7;
+			byte >>= 1;
 			
-			for (i = 0; i < 3; i++)
+			for (i = 2; i >= 0; i--)
 			{
 				words[i] = byte % 5;
 				byte /= 5;

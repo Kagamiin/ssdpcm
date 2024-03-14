@@ -28,6 +28,8 @@ static const char *ssdpcm_mode_fourcc_list[] =
 	"s1.6",
 	"ss2 ",
 	"s2.3",
+	"ss3 ",
+	"\0"
 };
 
 #define MAX_NUM_SLOPES 16 // have you seen how long it takes to encode with 16 slopes, even with 8-bit input?
@@ -1129,11 +1131,19 @@ wav_init_ssdpcm(wav_handle *w, wav_sample_fmt format, ssdpcm_block_mode mode, ui
 		block_header_data_size = (ssdpcm_ex->bits_per_output_sample / 8) * (ssdpcm_ex->num_slopes / 2 + (has_reference_sample ? 1 : 0));
 		ssdpcm_ex->bytes_per_block = (ssdpcm_ex->block_length * 7 + 23) / 24 + block_header_data_size;
 		break;
+	case SS_SS3:
+		ssdpcm_ex->num_slopes = 8;
+		ssdpcm_ex->bytes_per_read_alignment = 3;
+
+		block_header_data_size = (ssdpcm_ex->bits_per_output_sample / 8) * (ssdpcm_ex->num_slopes / 2 + (has_reference_sample ? 1 : 0));
+		ssdpcm_ex->bytes_per_block = (ssdpcm_ex->block_length * 3 + 7) / 8 + block_header_data_size;
+		break;
 	default:
 		return E_INVALID_ARGUMENT;
 	}
 	
 	assert(mode >= 0 && mode < NUM_SSDPCM_MODES);
+	assert(*ssdpcm_mode_fourcc_list[mode] != '\0' || "Unregistered mode fourcc");
 	memcpy(ssdpcm_ex->mode_fourcc, ssdpcm_mode_fourcc_list[mode], 4);
 	
 	return E_OK;
@@ -1155,7 +1165,7 @@ wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code)
 	size_t sample_size_bytes = ssdpcm_ex->bits_per_output_sample / 8;
 	size_t block_header_data_size = sample_size_bytes * (ssdpcm_ex->num_slopes / 2 + (ssdpcm_ex->has_reference_sample_on_every_block ? 1 : 0));
 	size_t code_size = ssdpcm_ex->bytes_per_block - block_header_data_size;
-	size_t amt_written_total = 0, amt_to_write, actually_written;
+	size_t actually_written;
 	int64_t initial_offset, final_offset;
 	
 	initial_offset = wav_tell(w) * w->header->fmt_content.bytes_per_quantum;
@@ -1172,24 +1182,20 @@ wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code)
 		{
 			return E_WRITE_ERROR;
 		}
-		amt_written_total += sample_size_bytes;
 	}
 
-	amt_to_write = sample_size_bytes * ssdpcm_ex->num_slopes / 2;
 	actually_written = fwrite(slopes, sample_size_bytes, ssdpcm_ex->num_slopes / 2, w->fp);
 	if (actually_written != (ssdpcm_ex->num_slopes / 2))
 	{
 		return E_WRITE_ERROR;
 	}
-	amt_written_total += amt_to_write;
 	actually_written = fwrite(code, 1, code_size, w->fp);
 	if (actually_written != code_size)
 	{
 		return E_WRITE_ERROR;
 	}
-	amt_written_total += code_size;
 	
-	final_offset = initial_offset + amt_written_total;
+	final_offset = wav_tell(w) * w->header->fmt_content.bytes_per_quantum;
 	if (final_offset > w->header->data_length)
 	{
 		w->header->data_length = final_offset;
@@ -1245,6 +1251,11 @@ wav_read_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code)
 	int64_t amt_to_read, amt_we_can_read, actually_read;
 	
 	amt_we_can_read = w->header->data_length - (wav_tell(w) * w->header->fmt_content.bytes_per_quantum);
+	if (amt_we_can_read == 0)
+	{
+		return E_END_OF_STREAM;
+	}
+	
 	if (ssdpcm_ex->has_reference_sample_on_every_block || wav_tell(w) == 0)
 	{
 		amt_to_read = sample_size_bytes;
@@ -1267,6 +1278,7 @@ wav_read_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code)
 	if (actually_read != ssdpcm_ex->num_slopes / 2)
 	{
 		// File ended in the middle of a block
+		fprintf(stderr, "\namt_we_can_read: %ld\n", amt_we_can_read);
 		return E_PREMATURE_END_OF_FILE;
 	}
 
@@ -1274,6 +1286,7 @@ wav_read_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code)
 	if (actually_read != code_size)
 	{
 		// File ended in the middle of a block
+		fprintf(stderr, "\namt_we_can_read: %ld\n", amt_we_can_read);
 		return E_PREMATURE_END_OF_FILE;
 	}
 	

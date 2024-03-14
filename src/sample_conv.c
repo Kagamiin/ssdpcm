@@ -1,4 +1,5 @@
 
+#include <stdio.h>
 #include <types.h>
 #include <errors.h>
 
@@ -30,6 +31,41 @@ sample_encode_s16 (int16_t *dest, sample_t *src, size_t num_samples)
 		if (value < INT16_MIN)
 		{
 			value = INT16_MIN;
+		}
+		dest[i] = value;
+	}
+}
+
+void
+sample_decode_u16 (sample_t *dest, uint16_t *src, size_t num_samples)
+{
+	debug_assert(dest != NULL);
+	debug_assert(src != NULL);
+	size_t i;
+	for (i = 0; i < num_samples; i++)
+	{
+		dest[i] = src[i];
+	}
+}
+
+void
+sample_encode_u16 (uint16_t *dest, sample_t *src, size_t num_samples)
+{
+	debug_assert(dest != NULL);
+	debug_assert(src != NULL);
+	size_t i;
+	for (i = 0; i < num_samples; i++)
+	{
+		sample_t value = src[i];
+		if (value > UINT16_MAX)
+		{
+			fprintf(stderr, "Clamped rogue sample from 0x%x to 0x%x\n", (unsigned)value, UINT16_MAX);
+			value = UINT16_MAX;
+		}
+		if (value < 0)
+		{
+			fprintf(stderr, "Clamped rogue sample from 0x%x to 0x0000\n", (unsigned)value);
+			value = 0;
 		}
 		dest[i] = value;
 	}

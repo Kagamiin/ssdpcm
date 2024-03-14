@@ -42,6 +42,7 @@ static const char usage[] = "\
     - \033[96mss1.6\033[0m  - 1.6-bit SSDPCM\n\
     - \033[96mss2\033[0m    - 2-bit SSDPCM\n\
     - \033[96mss2.3\033[0m  - 2.3-bit SSDPCM\n\
+    - \033[96mss3\033[0m  - 3-bit SSDPCM\n\
     - \033[96mdecode\033[0m - decodes an encoded input file\n\
 - \033[96minfile.wav\033[0m should be an 8-bit unsigned PCM or 16-bit signed\n\
   PCM WAV file for the encoding modes, or an encoded .aud SSDPCM file for the\n\
@@ -114,6 +115,12 @@ main (int argc, char **argv)
 	{
 		mode = SS_SS2_3;
 		block.num_deltas = 5;
+		block_length = 120;
+	}
+	else if (!strcmp("ss3", argv[1]))
+	{
+		mode = SS_SS3;
+		block.num_deltas = 8;
 		block_length = 120;
 	}
 	else if (!strcmp("decode", argv[1]))
@@ -250,7 +257,7 @@ main (int argc, char **argv)
 			sample_decode_u8(&block.initial_sample, initial_sample_temp, 1);
 			break;
 		case W_S16LE:
-			sample_decode_s16(block.slopes, sample_conv_buffer, block.num_deltas / 2);
+			sample_decode_u16(block.slopes, sample_conv_buffer, block.num_deltas / 2);
 			sample_decode_s16(&block.initial_sample, (int16_t *)initial_sample_temp, 1);
 			break;
 		default:
@@ -348,6 +355,9 @@ main (int argc, char **argv)
 			case SS_SS2_3:
 				range_encode_ss2_3(block.deltas, (uint8_t *)code_buffer, block_length);
 				break;
+			case SS_SS3:
+				range_encode_ss3(block.deltas, (uint8_t *)code_buffer, block_length);
+				break;
 			default:
 				// unreachable
 				debug_assert(0 && "unexpected SSDPCM mode");
@@ -360,7 +370,7 @@ main (int argc, char **argv)
 				sample_encode_u8_overflow(sample_conv_buffer, block.slopes, block.num_deltas);
 				break;
 			case W_S16LE:
-				sample_encode_s16(sample_conv_buffer, block.slopes, block.num_deltas);
+				sample_encode_u16(sample_conv_buffer, block.slopes, block.num_deltas / 2);
 				break;
 			default:
 				// unreachable
@@ -430,6 +440,9 @@ main (int argc, char **argv)
 			case SS_SS2_3:
 				range_decode_ss2_3((uint8_t *)code_buffer, block.deltas, code_buffer_size);
 				break;
+			case SS_SS3:
+				range_decode_ss3((uint8_t *)code_buffer, block.deltas, code_buffer_size);
+				break;
 			default:
 				// unreachable
 				debug_assert(0 && "unexpected SSDPCM mode");
@@ -495,7 +508,7 @@ main (int argc, char **argv)
 				//sample_decode_u8(&block.initial_sample, initial_sample_temp, 1);
 				break;
 			case W_S16LE:
-				sample_decode_s16(block.slopes, sample_conv_buffer, block.num_deltas / 2);
+				sample_decode_u16(block.slopes, sample_conv_buffer, block.num_deltas / 2);
 				//sample_decode_s16(&block.initial_sample, (int16_t *)initial_sample_temp, 1);
 				break;
 			default:

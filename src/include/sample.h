@@ -6,6 +6,9 @@
 void sample_decode_s16 (sample_t *dest, int16_t *src, size_t num_samples);
 void sample_encode_s16 (int16_t *dest, sample_t *src, size_t num_samples);
 
+void sample_decode_u16 (sample_t *dest, uint16_t *src, size_t num_samples);
+void sample_encode_u16 (uint16_t *dest, sample_t *src, size_t num_samples);
+
 void sample_decode_u8 (sample_t *dest, uint8_t *src, size_t num_samples);
 void sample_encode_u8_overflow (uint8_t *dest, sample_t *src, size_t num_samples);
 void sample_encode_u8_clamp (uint8_t *dest, sample_t *src, size_t num_samples);

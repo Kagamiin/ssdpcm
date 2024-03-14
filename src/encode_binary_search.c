@@ -27,6 +27,15 @@ do_binary_search_internal_ (
 	while (dest->slopes[0] <= max_abs_delta && dest->slopes[0] <= ranges_hi[0])
 	{
 		uint64_t sigma_metric = ssdpcm_block_encode(dest, in, sigma);
+		
+#if 0
+		for (i = 0; i < num_deltas; i++)
+		{
+			fprintf(stderr, "%7ld ", dest->slopes[i]);
+		}
+		fprintf(stderr, "\n");
+#endif
+		
 		if (sigma_metric < best_metric)
 		{
 			best_metric = sigma_metric;
@@ -95,8 +104,12 @@ do_binary_search_ (
 		for (i = 0; i < half_num_deltas; i++)
 		{
 			dest->slopes[i] -= (1 << chop_bits);
+			if (dest->slopes[i] < 0)
+			{
+				dest->slopes[i] += (2 << chop_bits);
+			}
 			dest->slopes[i + half_num_deltas] = -dest->slopes[i];
-			ranges_low[i] = dest->slopes[i] - (1 << chop_bits);
+			ranges_low[i] = (dest->slopes[i] - (1 << chop_bits)) < 0 ? 0 : (dest->slopes[i] - (1 << chop_bits));
 			ranges_high[i] = dest->slopes[i] + (1 << chop_bits);
 		}
 		

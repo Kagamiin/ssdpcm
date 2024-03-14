@@ -52,6 +52,7 @@ typedef enum
 	SS_SS1_6,
 	SS_SS2,
 	SS_SS2_3,
+	SS_SS3,
 	
 	NUM_SSDPCM_MODES,
 } ssdpcm_block_mode;

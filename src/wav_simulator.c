@@ -249,7 +249,7 @@ main (int argc, char **argv)
 			break;
 		}
 		
-		wav_write(outfile, byte_buffer, block_length, &err);
+		wav_write(outfile, byte_buffer, block_length, -1, &err);
 		if (err != E_OK)
 		{
 			char err_msg[256];

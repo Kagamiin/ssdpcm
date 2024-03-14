@@ -995,7 +995,7 @@ wav_read(wav_handle *w, void *dest, size_t num_samples, err_t *err_out)
 }
 
 long
-wav_write(wav_handle *w, void *src, size_t num_samples, err_t *err_out)
+wav_write(wav_handle *w, void *src, size_t num_samples, int64_t offset, err_t *err_out)
 {
 	size_t amt_to_write, actually_written;
 	int64_t initial_offset, final_offset;
@@ -1016,6 +1016,13 @@ wav_write(wav_handle *w, void *src, size_t num_samples, err_t *err_out)
 		wav_seek(w, 0, SEEK_SET);
 		initial_offset = 0;
 	}
+	
+	if (offset >= 0)
+	{
+		wav_seek(w, offset, SEEK_SET);
+		initial_offset = wav_tell(w) * w->header->fmt_content.bytes_per_quantum;
+	}
+	
 	final_offset = initial_offset + amt_to_write;
 	
 	if (final_offset > w->header->data_length)
@@ -1150,7 +1157,7 @@ wav_init_ssdpcm(wav_handle *w, wav_sample_fmt format, ssdpcm_block_mode mode, ui
 }
 
 err_t
-wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code)
+wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code, int64_t index)
 {
 	if (w == NULL || w->header == NULL)
 	{
@@ -1167,12 +1174,23 @@ wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code)
 	size_t code_size = ssdpcm_ex->bytes_per_block - block_header_data_size;
 	size_t actually_written;
 	int64_t initial_offset, final_offset;
+	err_t err;
 	
 	initial_offset = wav_tell(w) * w->header->fmt_content.bytes_per_quantum;
 	if (initial_offset < 0)
 	{
 		wav_seek(w, 0, SEEK_SET);
 		initial_offset = 0;
+	}
+	
+	if (index >= 0)
+	{
+		err = wav_seek(w, index * ssdpcm_ex->bytes_per_block, SEEK_SET);
+		if (err != E_OK)
+		{
+			return err;
+		}
+		initial_offset = wav_tell(w) * w->header->fmt_content.bytes_per_quantum;
 	}
 	
 	if (ssdpcm_ex->has_reference_sample_on_every_block || wav_tell(w) == 0)
@@ -1366,6 +1384,23 @@ wav_get_ssdpcm_num_slopes(wav_handle *w, err_t *err_out)
 	
 	*err_out = E_OK;
 	return w->header->ssdpcm_extra_chunk->num_slopes;
+}
+
+bool
+wav_ssdpcm_has_reference_sample_on_every_block(wav_handle *w, err_t *err_out)
+{
+	if (w == NULL || w->header == NULL)
+	{
+		*err_out = E_NULLPTR;
+		return 0;
+	}
+	if (w->header->ssdpcm_extra_chunk == NULL)
+	{
+		*err_out = E_NOT_A_SSDPCM_WAV;
+		return 0;
+	}
+	
+	return w->header->ssdpcm_extra_chunk->has_reference_sample_on_every_block;
 }
 
 err_t

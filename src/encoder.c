@@ -78,6 +78,7 @@ main (int argc, char **argv)
 	err_t err;
 	bool comb_filter = false;
 	bool decode_mode = false;
+	bool has_reference_sample_on_every_block = false;
 	
 	memset(slopes, 0, sizeof(sample_t) * 16);
 	
@@ -239,6 +240,7 @@ main (int argc, char **argv)
 	wav_write_header(outfile);
 	wav_seek(infile, 0, SEEK_SET);
 	wav_seek(outfile, 0, SEEK_SET);
+	has_reference_sample_on_every_block = wav_ssdpcm_has_reference_sample_on_every_block(infile, &err);
 	
 	if (decode_mode)
 	{
@@ -377,7 +379,7 @@ main (int argc, char **argv)
 				break;
 			}
 			
-			err = wav_write_ssdpcm_block(outfile, initial_sample_temp, sample_conv_buffer, code_buffer);
+			err = wav_write_ssdpcm_block(outfile, initial_sample_temp, sample_conv_buffer, code_buffer, -1);
 			if (err != E_OK)
 			{
 				char err_msg[256];
@@ -476,7 +478,7 @@ main (int argc, char **argv)
 				break;
 			}
 			
-			wav_write(outfile, sample_conv_buffer, block_length, &err);
+			wav_write(outfile, sample_conv_buffer, block_length, -1, &err);
 			if (err != E_OK)
 			{
 				char err_msg[256];
@@ -505,11 +507,17 @@ main (int argc, char **argv)
 			{
 			case W_U8:
 				sample_decode_u8(block.slopes, sample_conv_buffer, block.num_deltas / 2);
-				//sample_decode_u8(&block.initial_sample, initial_sample_temp, 1);
+				if (has_reference_sample_on_every_block)
+				{
+					sample_decode_u8(&block.initial_sample, initial_sample_temp, 1);
+				}
 				break;
 			case W_S16LE:
 				sample_decode_u16(block.slopes, sample_conv_buffer, block.num_deltas / 2);
-				//sample_decode_s16(&block.initial_sample, (int16_t *)initial_sample_temp, 1);
+				if (has_reference_sample_on_every_block)
+				{
+					sample_decode_s16(&block.initial_sample, (int16_t *)initial_sample_temp, 1);
+				}
 				break;
 			default:
 				// unreachable

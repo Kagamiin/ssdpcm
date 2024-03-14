@@ -9,7 +9,7 @@ wav_handle *wav_alloc(err_t *err_out);
 wav_handle *wav_open(wav_handle *w, char *filename, wav_open_mode mode, err_t *err_out);
 wav_handle *wav_close(wav_handle *w, err_t *err_out);
 long wav_read(wav_handle *w, void *dest, size_t num_samples, err_t *err_out);
-long wav_write(wav_handle *w, void *src, size_t num_samples, err_t *err_out);
+long wav_write(wav_handle *w, void *src, size_t num_samples, int64_t offset, err_t *err_out);
 err_t wav_write_header (wav_handle *w);
 err_t wav_seek(wav_handle *w, int64_t quantum_offset, int whence);
 long wav_tell(wav_handle *w);
@@ -26,8 +26,9 @@ uint16_t wav_get_ssdpcm_block_length(wav_handle *w, err_t *err_out);
 uint16_t wav_get_ssdpcm_total_bytes_per_block(wav_handle *w, err_t *err_out);
 uint16_t wav_get_ssdpcm_code_bytes_per_block(wav_handle *w, err_t *err_out);
 uint8_t wav_get_ssdpcm_num_slopes(wav_handle *w, err_t *err_out);
-err_t wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code);
+err_t wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code, int64_t index);
 err_t wav_read_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code);
 wav_sample_fmt wav_get_ssdpcm_output_format(wav_handle *w, err_t *err_out);
+bool wav_ssdpcm_has_reference_sample_on_every_block(wav_handle *w, err_t *err_out);
 
 #endif

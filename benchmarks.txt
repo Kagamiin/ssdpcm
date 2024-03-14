@@ -1,0 +1,15 @@
+evangelion.wav - 4 threads
+ Mode      encoder   encoder_parallel  speedup  efficiency
+ss1          3.325s       2.334s        1.425     0.356
+ss1.6        4.029s       2.646s        1.523     0.381
+ss2         22.588s      11.133s        2.029     0.507
+ss2.3       26.494s      12.943s        2.047     0.512
+ss3        697.913s     330.960s        2.109     0.527
+
+evangelion.wav - 2 threads
+ Mode      encoder   encoder_parallel  speedup  efficiency
+ss1          3.325s       2.621s        1.269     0.635
+ss1.6        4.029s       3.178s        1.268     0.634
+ss2         22.588s      14.200s        1.591     0.796
+ss2.3       26.494s      15.903s        1.666     0.833
+ss3        697.913s     433.547s        1.610     0.805

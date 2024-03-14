@@ -220,6 +220,7 @@ main (int argc, char **argv)
 	{
 		wav_set_format(outfile, format);
 		sample_conv_buffer = malloc(wav_get_sizeof(outfile, block_length));
+		has_reference_sample_on_every_block = wav_ssdpcm_has_reference_sample_on_every_block(infile, &err);
 	}
 	else
 	{
@@ -240,7 +241,6 @@ main (int argc, char **argv)
 	wav_write_header(outfile);
 	wav_seek(infile, 0, SEEK_SET);
 	wav_seek(outfile, 0, SEEK_SET);
-	has_reference_sample_on_every_block = wav_ssdpcm_has_reference_sample_on_every_block(infile, &err);
 	
 	if (decode_mode)
 	{

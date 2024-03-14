@@ -34,7 +34,10 @@ write_block_params (FILE *dest, uint8_t initial_sample, uint8_t length)
 }
 
 static const char usage[] = "\
-\033[97mUsage:\033[0m encoder (mode) infile.wav outfile.aud\n\
+\033[97mUsage:\033[0m encoder_parallel (mode) infile.wav outfile.aud\n\
+This encoder takes advantage of multithreading to accelerate encoding of the\n\
+higher quality modes, such as ss2, ss2.3 and ss3. For lower quality modes,\n\
+usage of the normal encoder is recommended.\n\
 - Parameters\n\
   - \033[96mmode\033[0m - Selects the encoding mode; the following modes are\n\
     supported (in increasing order of bitrate):\n\
@@ -73,6 +76,7 @@ main (int argc, char **argv)
 	long block_length;
 	int num_deltas;
 	sigma_tracker_methods sigma_methods = NULL;
+	int num_threads;
 	bool comb_filter = false;
 	bool decode_mode = false;
 	bool has_reference_sample_on_every_block = false;
@@ -205,6 +209,7 @@ main (int argc, char **argv)
 	if (decode_mode)
 	{
 		wav_set_format(outfile, format);
+		has_reference_sample_on_every_block = wav_ssdpcm_has_reference_sample_on_every_block(infile, &err);
 	}
 	else
 	{
@@ -215,12 +220,17 @@ main (int argc, char **argv)
 	wav_write_header(outfile);
 	wav_seek(infile, 0, SEEK_SET);
 	wav_seek(outfile, 0, SEEK_SET);
-	has_reference_sample_on_every_block = wav_ssdpcm_has_reference_sample_on_every_block(infile, &err);
 	
+
 	// HACK: Decode serially, because it's faster lol
-	if (decode_mode)
+	if (decode_mode || has_reference_sample_on_every_block)
 	{
 		omp_set_num_threads(1);
+	}
+	else
+	{
+		num_threads = omp_get_num_threads();
+		fprintf(stderr, "Encoding in parallel with %d threads.\n", num_threads);
 	}
 	
 #pragma omp parallel firstprivate(err)

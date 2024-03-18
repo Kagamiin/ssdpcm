@@ -10,7 +10,7 @@ CFLAGS_DBG := \
 	-O0 \
 	-g \
 	-fopenmp \
-	-fsanitize=thread \
+	-fsanitize=address \
 	-fno-omit-frame-pointer \
 	-fno-optimize-sibling-calls \
 

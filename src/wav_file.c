@@ -248,10 +248,6 @@ wav_read_fmt_chunk_ (wav_handle *w)
 	{
 		return E_UNRECOGNIZED_FORMAT;
 	}
-	if (chunk->num_channels != 1)
-	{
-		return E_ONLY_MONO_SUPPORTED;
-	}
 	if ((chunk->sample_rate * chunk->bits_per_sample * chunk->num_channels / 8) != chunk->byte_rate)
 	{
 		return E_MISMATCHED_RATES;
@@ -828,7 +824,7 @@ wav_get_format(wav_handle *w, err_t *err_out)
 	if (w == NULL)
 	{
 		*err_out = E_NULLPTR;
-		return -1;
+		return W_ERROR;
 	}
 
 	*err_out = E_OK;
@@ -854,7 +850,7 @@ wav_get_format(wav_handle *w, err_t *err_out)
 	else
 	{
 		*err_out = E_UNRECOGNIZED_FORMAT;
-		return -1;
+		return W_ERROR;
 	}
 }
 
@@ -885,6 +881,44 @@ wav_get_sample_rate(wav_handle *w)
 	}
 	
 	return w->header->fmt_content.sample_rate;
+}
+
+uint8_t
+wav_get_num_channels(wav_handle *w, err_t *err_out)
+{
+	debug_assert(w != NULL);
+	debug_assert(w->header != NULL);
+	if (w == NULL)
+	{
+		*err_out = E_NULLPTR;
+		return 0;
+	}
+	
+	return w->header->fmt_content.num_channels;
+}
+
+err_t
+wav_set_num_channels(wav_handle *w, uint8_t num_channels)
+{
+	debug_assert(w != NULL);
+	debug_assert(w->header != NULL);
+	if (w == NULL)
+	{
+		return E_NULLPTR;
+	}
+	
+	err_t err;
+	wav_sample_fmt f = wav_get_format(w, &err);
+	if (err != E_OK)
+	{
+		return err;
+	}
+
+	w->header->fmt_content.num_channels = num_channels;
+	err = wav_set_format(w, f);
+	debug_assert(err == E_OK);
+
+	return err;
 }
 
 err_t
@@ -1157,7 +1191,7 @@ wav_init_ssdpcm(wav_handle *w, wav_sample_fmt format, ssdpcm_block_mode mode, ui
 }
 
 err_t
-wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code, int64_t index)
+wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code, int64_t index, uint16_t channel_idx)
 {
 	if (w == NULL || w->header == NULL)
 	{
@@ -1172,6 +1206,7 @@ wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code,
 	size_t sample_size_bytes = ssdpcm_ex->bits_per_output_sample / 8;
 	size_t block_header_data_size = sample_size_bytes * (ssdpcm_ex->num_slopes / 2 + (ssdpcm_ex->has_reference_sample_on_every_block ? 1 : 0));
 	size_t code_size = ssdpcm_ex->bytes_per_block - block_header_data_size;
+	uint16_t num_channels = w->header->fmt_content.num_channels;
 	size_t actually_written;
 	int64_t initial_offset, final_offset;
 	err_t err;
@@ -1193,10 +1228,11 @@ wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code,
 		initial_offset = wav_tell(w) * w->header->fmt_content.bytes_per_quantum;
 	}
 	
-	if (ssdpcm_ex->has_reference_sample_on_every_block || wav_tell(w) == 0)
+	if ((ssdpcm_ex->has_reference_sample_on_every_block && (channel_idx % num_channels) == 0)
+		|| wav_tell(w) == 0)
 	{
-		actually_written = fwrite(reference, sample_size_bytes, 1, w->fp);
-		if (actually_written != 1)
+		actually_written = fwrite(reference, sample_size_bytes, num_channels, w->fp);
+		if (actually_written != num_channels)
 		{
 			return E_WRITE_ERROR;
 		}
@@ -1229,12 +1265,12 @@ wav_get_ssdpcm_output_format(wav_handle *w, err_t *err_out)
 	if (w == NULL || w->header == NULL)
 	{
 		*err_out = E_NULLPTR;
-		return -1;
+		return W_ERROR;
 	}
 	if (w->header->ssdpcm_extra_chunk == NULL)
 	{
 		*err_out = E_NOT_A_SSDPCM_WAV;
-		return -1;
+		return W_ERROR;
 	}
 	
 	*err_out = E_OK;
@@ -1246,12 +1282,12 @@ wav_get_ssdpcm_output_format(wav_handle *w, err_t *err_out)
 		return W_S16LE;
 	default:
 		*err_out = E_UNSUPPORTED_BITS_PER_SAMPLE;
-		return -1;
+		return W_ERROR;
 	}
 }
 
 err_t
-wav_read_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code)
+wav_read_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code, uint16_t channel_idx)
 {
 	if (w == NULL || w->header == NULL)
 	{
@@ -1266,6 +1302,7 @@ wav_read_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code)
 	size_t sample_size_bytes = ssdpcm_ex->bits_per_output_sample / 8;
 	size_t block_header_data_size = sample_size_bytes * (ssdpcm_ex->num_slopes / 2 + (ssdpcm_ex->has_reference_sample_on_every_block ? 1 : 0));
 	int64_t code_size = ssdpcm_ex->bytes_per_block - block_header_data_size;
+	uint16_t num_channels = w->header->fmt_content.num_channels;
 	int64_t amt_to_read, amt_we_can_read, actually_read;
 	
 	amt_we_can_read = w->header->data_length - (wav_tell(w) * w->header->fmt_content.bytes_per_quantum);
@@ -1274,11 +1311,12 @@ wav_read_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code)
 		return E_END_OF_STREAM;
 	}
 	
-	if (ssdpcm_ex->has_reference_sample_on_every_block || wav_tell(w) == 0)
+	if ((ssdpcm_ex->has_reference_sample_on_every_block && (channel_idx % num_channels) == 0)
+		|| wav_tell(w) == 0)
 	{
 		amt_to_read = sample_size_bytes;
-		actually_read = fread(reference, sample_size_bytes, 1, w->fp);
-		if (actually_read != 1)
+		actually_read = fread(reference, sample_size_bytes, num_channels, w->fp);
+		if (actually_read != num_channels)
 		{
 			if (amt_to_read > amt_we_can_read)
 			{

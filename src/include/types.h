@@ -43,6 +43,7 @@ typedef enum
 	W_U8,
 	W_S16LE,
 	W_SSDPCM,
+	W_ERROR,
 } wav_sample_fmt;
 
 typedef enum

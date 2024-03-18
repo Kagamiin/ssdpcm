@@ -227,11 +227,6 @@ main (int argc, char **argv)
 	{
 		omp_set_num_threads(1);
 	}
-	else
-	{
-		num_threads = omp_get_num_threads();
-		fprintf(stderr, "Encoding in parallel with %d threads.\n", num_threads);
-	}
 	
 #pragma omp parallel firstprivate(err)
 	{
@@ -258,6 +253,11 @@ main (int argc, char **argv)
 		else
 		{
 			sample_conv_buffer = malloc(wav_get_sizeof(infile, block_length));
+			if (omp_get_thread_num() == 0)
+			{
+				num_threads = omp_get_num_threads();
+				fprintf(stderr, "\rEncoding in parallel with %d threads.\n", num_threads);
+			}
 		}
 		sample_buffer = malloc(sizeof(sample_t) * block_length);
 		delta_buffer = malloc(sizeof(codeword_t) * block_length);
@@ -383,7 +383,7 @@ main (int argc, char **argv)
 				}
 				
 #pragma omp critical
-				err = wav_write_ssdpcm_block(outfile, initial_sample_temp, sample_conv_buffer, code_buffer, block_index);
+				err = wav_write_ssdpcm_block(outfile, initial_sample_temp, sample_conv_buffer, code_buffer, block_index, 0);
 				if (err != E_OK)
 				{
 					char err_msg[256];
@@ -404,7 +404,7 @@ main (int argc, char **argv)
 				{
 //#pragma omp atomic capture
 					{ block_index = block_count; block_count++; }
-					err = wav_read_ssdpcm_block(infile, initial_sample_temp, sample_conv_buffer, code_buffer);
+					err = wav_read_ssdpcm_block(infile, initial_sample_temp, sample_conv_buffer, code_buffer, 0);
 				}
 				if (err != E_OK)
 				{

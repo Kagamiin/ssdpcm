@@ -49,6 +49,45 @@ sample_decode_u16 (sample_t *dest, uint16_t *src, size_t num_samples)
 }
 
 void
+sample_decode_s16_multichannel (sample_t **dest, int16_t *src, size_t num_samples, size_t num_channels)
+{
+	debug_assert(dest != NULL);
+	debug_assert(src != NULL);
+	size_t i;
+	size_t c = 0;
+	for (i = 0; i < num_samples * num_channels; i++)
+	{
+		dest[c][i / num_channels] = src[i];
+		c++;
+		c %= num_channels;
+	}
+}
+
+void
+sample_encode_s16_multichannel (int16_t *dest, sample_t **src, size_t num_samples, size_t num_channels)
+{
+	debug_assert(dest != NULL);
+	debug_assert(src != NULL);
+	size_t i;
+	size_t c = 0;
+	for (i = 0; i < num_samples * num_channels; i++)
+	{
+		sample_t value = src[c][i / num_channels];
+		if (value > INT16_MAX)
+		{
+			value = INT16_MAX;
+		}
+		if (value < INT16_MIN)
+		{
+			value = INT16_MIN;
+		}
+		dest[i] = value;
+		c++;
+		c %= num_channels;
+	}
+}
+
+void
 sample_encode_u16 (uint16_t *dest, sample_t *src, size_t num_samples)
 {
 	debug_assert(dest != NULL);
@@ -92,6 +131,36 @@ sample_encode_u8_overflow (uint8_t *dest, sample_t *src, size_t num_samples)
 	for (i = 0; i < num_samples; i++)
 	{
 		dest[i] = src[i] & 0xFF;
+	}
+}
+
+void
+sample_decode_u8_multichannel (sample_t **dest, uint8_t *src, size_t num_samples, size_t num_channels)
+{
+	debug_assert(dest != NULL);
+	debug_assert(src != NULL);
+	size_t i;
+	size_t c = 0;
+	for (i = 0; i < num_samples * num_channels; i++)
+	{
+		dest[c][i / num_channels] = src[i];
+		c++;
+		c %= num_channels;
+	}
+}
+
+void
+sample_encode_u8_overflow_multichannel (uint8_t *dest, sample_t **src, size_t num_samples, size_t num_channels)
+{
+	debug_assert(dest != NULL);
+	debug_assert(src != NULL);
+	size_t i;
+	size_t c = 0;
+	for (i = 0; i < num_samples * num_channels; i++)
+	{
+		dest[i] = src[c][i / num_channels] & 0xFF;
+		c++;
+		c %= num_channels;
 	}
 }
 

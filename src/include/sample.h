@@ -5,6 +5,8 @@
 
 void sample_decode_s16 (sample_t *dest, int16_t *src, size_t num_samples);
 void sample_encode_s16 (int16_t *dest, sample_t *src, size_t num_samples);
+void sample_decode_s16_multichannel (sample_t **dest, int16_t *src, size_t num_samples, size_t num_channels);
+void sample_encode_s16_multichannel (int16_t *dest, sample_t **src, size_t num_samples, size_t num_channels);
 
 void sample_decode_u16 (sample_t *dest, uint16_t *src, size_t num_samples);
 void sample_encode_u16 (uint16_t *dest, sample_t *src, size_t num_samples);
@@ -12,6 +14,8 @@ void sample_encode_u16 (uint16_t *dest, sample_t *src, size_t num_samples);
 void sample_decode_u8 (sample_t *dest, uint8_t *src, size_t num_samples);
 void sample_encode_u8_overflow (uint8_t *dest, sample_t *src, size_t num_samples);
 void sample_encode_u8_clamp (uint8_t *dest, sample_t *src, size_t num_samples);
+void sample_decode_u8_multichannel (sample_t **dest, uint8_t *src, size_t num_samples, size_t num_channels);
+void sample_encode_u8_overflow_multichannel (uint8_t *dest, sample_t **src, size_t num_samples, size_t num_channels);
 
 void sample_convert_u8_to_s16 (int16_t *dest, uint8_t *src, size_t num_samples);
 void sample_convert_s16_to_u8 (uint8_t *dest, int16_t *src, size_t num_samples);

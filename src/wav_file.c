@@ -13,10 +13,16 @@ static const char *wav_fmt_chunk_id = "fmt ";
 static const char *wav_data_chunk_id = "data";
 static const char *ssdpcm_data_chunk_id = "SsDP";
 
-// Yes, I made a plaintext GUID because I could. Yes, it is a valid GUID (though slightly off-spec) and a valid version 3 UUID.
-static const char ssdpcm_codec_guid[] = // 53534450-434d-3a4b-6167-616d69696e7e
+// Yes, I made a plaintext GUID because I could. Yes, it is a valid GUID (though slightly off-spec) and a valid version 4 UUID.
+static const char ssdpcm_codec_guid[] = // 50445353-4d43-4b3a-6167-616d69696e7e - note that GUID byte endianness is weird
 {
 	0x53, 0x53, 0x44, 0x50, 0x43, 0x4d, 0x3a, 0x4b, 0x61, 0x67, 0x61, 0x6d, 0x69, 0x69, 0x6e, 0x7e
+};
+
+// This is for reading high sample rate PCM WAV files that are sometimes encoded as WAVEFORMATEXTENSIBLE.
+static const char waveformatext_pcm_codec_guid[] = // 00000001-0000-0010-8000-00aa00389b71 - note that GUID byte endianness is weird
+{
+	0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71
 };
 
 static const uint16_t wave_format_ex_id = 0xfffe;
@@ -167,6 +173,7 @@ static err_t
 wav_read_waveformatext_chunk_ (wav_handle *w)
 {
 	fread(&w->header->extra_length, sizeof(uint16_t), 1, w->fp);
+	int64_t chunk_start = ftell(w->fp);
 	wave_format_ex *fmt_ex;
 	if (w->header->fmt_ex_chunk == NULL)
 	{
@@ -198,11 +205,14 @@ wav_read_waveformatext_chunk_ (wav_handle *w)
 			return E_INVALID_SUBHEADER;
 		}
 	}
-	else
+	else if (!(memcmp(fmt_ex->sub_format, waveformatext_pcm_codec_guid, 16) == 0))
 	{
 		return E_UNRECOGNIZED_SUBFORMAT;
 	}
-	
+
+	int x = fseek(w->fp, chunk_start + w->header->extra_length, SEEK_SET);
+	debug_assert(x != -1 && "fseek failed");
+	(void) x;
 	return E_OK;
 }
 
@@ -218,6 +228,8 @@ wav_read_fmt_chunk_ (wav_handle *w)
 	// fmt chunk length
 	x = fread(&w->header->fmt_length, sizeof(uint32_t), 1, w->fp);
 	debug_assert(x == 1);
+	int64_t chunk_start = ftell(w->fp);
+	
 	if (w->header->fmt_length < 16)
 	{
 		return E_FMT_CHUNK_TOO_SMALL;
@@ -238,17 +250,15 @@ wav_read_fmt_chunk_ (wav_handle *w)
 			return err;
 		}
 	}
-	else if (w->header->fmt_length > 16)
-	{
-		x = fseek(w->fp, w->header->fmt_length - 16, SEEK_CUR);
-		debug_assert(x != -1);
-	}
+
+	x = fseek(w->fp, chunk_start + w->header->fmt_length, SEEK_SET);
+	debug_assert(x != -1 && "fseek failed");
 	
 	if (chunk->fmt_type != 1 && chunk->fmt_type != wave_format_ex_id)
 	{
 		return E_UNRECOGNIZED_FORMAT;
 	}
-	if ((chunk->sample_rate * chunk->bits_per_sample * chunk->num_channels / 8) != chunk->byte_rate)
+	if ((chunk->sample_rate * chunk->bits_per_sample * chunk->num_channels / 8) != chunk->byte_rate && chunk->fmt_type != wave_format_ex_id)
 	{
 		return E_MISMATCHED_RATES;
 	}
@@ -842,10 +852,26 @@ wav_get_format(wav_handle *w, err_t *err_out)
 		return W_S16LE;
 	}
 	else if (w->header->fmt_content.fmt_type == wave_format_ex_id
-		&& w->header->fmt_content.bits_per_sample == 0
-		&& w->header->fmt_content.bytes_per_quantum == 1)
+		&& w->header->fmt_ex_chunk != NULL
+		&& memcmp(w->header->fmt_ex_chunk->sub_format, ssdpcm_codec_guid, 16) == 0)
 	{
 		return W_SSDPCM;
+	}
+	else if (w->header->fmt_content.fmt_type == wave_format_ex_id
+		&& w->header->fmt_ex_chunk != NULL
+		&& memcmp(w->header->fmt_ex_chunk->sub_format, waveformatext_pcm_codec_guid, 16) == 0
+		&& w->header->fmt_content.bits_per_sample == 8
+		&& w->header->fmt_content.bytes_per_quantum == 1 * w->header->fmt_content.num_channels)
+	{
+		return W_U8;
+	}
+	else if (w->header->fmt_content.fmt_type == wave_format_ex_id
+		&& w->header->fmt_ex_chunk != NULL
+		&& memcmp(w->header->fmt_ex_chunk->sub_format, waveformatext_pcm_codec_guid, 16) == 0
+		&& w->header->fmt_content.bits_per_sample == 16
+		&& w->header->fmt_content.bytes_per_quantum == 2 * w->header->fmt_content.num_channels)
+	{
+		return W_S16LE;
 	}
 	else
 	{
@@ -865,7 +891,14 @@ wav_set_sample_rate(wav_handle *w, uint32_t sample_rate)
 	}
 	
 	w->header->fmt_content.sample_rate = sample_rate;
-	w->header->fmt_content.byte_rate = w->header->fmt_content.bytes_per_quantum * w->header->fmt_content.sample_rate;
+	if (!w->header->ssdpcm_extra_chunk)
+	{
+		w->header->fmt_content.byte_rate = w->header->fmt_content.bytes_per_quantum * w->header->fmt_content.sample_rate;
+	}
+	else
+	{
+		w->header->fmt_content.byte_rate = w->header->fmt_content.sample_rate * w->header->ssdpcm_extra_chunk->bytes_per_block * w->header->fmt_content.num_channels / w->header->ssdpcm_extra_chunk->block_length;
+	}
 	
 	return E_OK;
 }
@@ -991,6 +1024,25 @@ wav_tell(wav_handle *w)
 }
 
 
+static long
+wav_tell_bytes(wav_handle *w)
+{
+	size_t byte_offset;
+
+	debug_assert(w != NULL);
+	debug_assert(w->fp != NULL);
+	debug_assert(w->header != NULL);
+	if (w == NULL)
+	{
+		return -1;
+	}
+	
+	byte_offset = ftell(w->fp);
+	byte_offset -= w->header->data_offset_in_file;
+	return byte_offset;
+}
+
+
 long
 wav_read(wav_handle *w, void *dest, size_t num_samples, err_t *err_out)
 {
@@ -1005,7 +1057,7 @@ wav_read(wav_handle *w, void *dest, size_t num_samples, err_t *err_out)
 		return -1;
 	}
 	
-	amt_we_can_read = w->header->data_length - (wav_tell(w) * w->header->fmt_content.bytes_per_quantum);
+	amt_we_can_read = w->header->data_length - wav_tell_bytes(w);
 	amt_to_read = wav_get_sizeof(w, num_samples);
 	actually_read = fread(dest, 1, amt_to_read, w->fp);
 	if (actually_read != amt_to_read)
@@ -1044,7 +1096,7 @@ wav_write(wav_handle *w, void *src, size_t num_samples, int64_t offset, err_t *e
 	}
 	
 	amt_to_write = wav_get_sizeof(w, num_samples);
-	initial_offset = wav_tell(w) * w->header->fmt_content.bytes_per_quantum;
+	initial_offset = wav_tell_bytes(w);
 	if (initial_offset < 0)
 	{
 		wav_seek(w, 0, SEEK_SET);
@@ -1054,7 +1106,7 @@ wav_write(wav_handle *w, void *src, size_t num_samples, int64_t offset, err_t *e
 	if (offset >= 0)
 	{
 		wav_seek(w, offset, SEEK_SET);
-		initial_offset = wav_tell(w) * w->header->fmt_content.bytes_per_quantum;
+		initial_offset = wav_tell_bytes(w);
 	}
 	
 	final_offset = initial_offset + amt_to_write;
@@ -1101,7 +1153,7 @@ wav_init_ssdpcm(wav_handle *w, wav_sample_fmt format, ssdpcm_block_mode mode, ui
 		}
 	}
 	w->header->fmt_ex_chunk->wfx_18_19.samples_per_block = block_length;
-	w->header->fmt_ex_chunk->channel_mask = 0x04; // only mono for now
+	w->header->fmt_ex_chunk->channel_mask = w->header->fmt_content.num_channels == 2 ? 0x03 : 0x04;
 	memcpy(w->header->fmt_ex_chunk->sub_format, ssdpcm_codec_guid, 16);
 	
 	w->header->ssdpcm_extra_chunk = calloc(1, sizeof(wav_ssdpcm_extra_chunk));
@@ -1182,6 +1234,9 @@ wav_init_ssdpcm(wav_handle *w, wav_sample_fmt format, ssdpcm_block_mode mode, ui
 	default:
 		return E_INVALID_ARGUMENT;
 	}
+
+	w->header->fmt_content.byte_rate = w->header->fmt_content.sample_rate * ssdpcm_ex->bytes_per_block * w->header->fmt_content.num_channels / ssdpcm_ex->block_length;
+	w->header->fmt_content.bytes_per_quantum = ssdpcm_ex->bytes_per_block;
 	
 	assert(mode >= 0 && mode < NUM_SSDPCM_MODES);
 	assert(*ssdpcm_mode_fourcc_list[mode] != '\0' || "Unregistered mode fourcc");
@@ -1211,7 +1266,7 @@ wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code,
 	int64_t initial_offset, final_offset;
 	err_t err;
 	
-	initial_offset = wav_tell(w) * w->header->fmt_content.bytes_per_quantum;
+	initial_offset = wav_tell_bytes(w);
 	if (initial_offset < 0)
 	{
 		wav_seek(w, 0, SEEK_SET);
@@ -1225,11 +1280,11 @@ wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code,
 		{
 			return err;
 		}
-		initial_offset = wav_tell(w) * w->header->fmt_content.bytes_per_quantum;
+		initial_offset = wav_tell_bytes(w);
 	}
 	
 	if ((ssdpcm_ex->has_reference_sample_on_every_block && (channel_idx % num_channels) == 0)
-		|| wav_tell(w) == 0)
+		|| wav_tell_bytes(w) == 0)
 	{
 		actually_written = fwrite(reference, sample_size_bytes, num_channels, w->fp);
 		if (actually_written != num_channels)
@@ -1249,7 +1304,7 @@ wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code,
 		return E_WRITE_ERROR;
 	}
 	
-	final_offset = wav_tell(w) * w->header->fmt_content.bytes_per_quantum;
+	final_offset = wav_tell_bytes(w);
 	if (final_offset > w->header->data_length)
 	{
 		w->header->data_length = final_offset;
@@ -1305,14 +1360,14 @@ wav_read_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code, 
 	uint16_t num_channels = w->header->fmt_content.num_channels;
 	int64_t amt_to_read, amt_we_can_read, actually_read;
 	
-	amt_we_can_read = w->header->data_length - (wav_tell(w) * w->header->fmt_content.bytes_per_quantum);
+	amt_we_can_read = w->header->data_length - wav_tell_bytes(w);
 	if (amt_we_can_read == 0)
 	{
 		return E_END_OF_STREAM;
 	}
 	
 	if ((ssdpcm_ex->has_reference_sample_on_every_block && (channel_idx % num_channels) == 0)
-		|| wav_tell(w) == 0)
+		|| wav_tell_bytes(w) == 0)
 	{
 		amt_to_read = sample_size_bytes;
 		actually_read = fread(reference, sample_size_bytes, num_channels, w->fp);

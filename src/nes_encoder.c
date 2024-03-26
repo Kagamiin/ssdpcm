@@ -6,6 +6,7 @@
 #include <sample.h>
 #include <errors.h>
 #include <errno.h>
+#include <range_coder.h>
 
 void
 exit_error (const char *msg, const char *error)
@@ -38,6 +39,7 @@ static const char usage[] = "\
 - The encoding mode can either be:\n\
   - \033[96mss1\033[0m - 1-bit SSDPCM\n\
   - \033[96mss1c\033[0m - 1-bit SSDPCM with comb filtering\n\
+  - \033[96mss1.6\033[0m - 1.6-bit SSDPCM\n\
   - \033[96mss2\033[0m - 2-bit SSDPCM\n\
 - \033[96minfile.u8\033[0m should be a raw 8-bit unsigned PCM file.\n\
   You can use an 8-bit unsigned WAV too, but you'll get some garbage in the\n\
@@ -74,6 +76,7 @@ main (int argc, char **argv)
 	ssdpcm_block block;
 	sample_t temp_initial_sample;
 	int bits_per_sample;
+	int codes_per_byte;
 	bool comb_filter = FALSE;
 
 	block.deltas = delta_buffer;
@@ -88,23 +91,36 @@ main (int argc, char **argv)
 	if (!strcmp("ss1", argv[1]))
 	{
 		bits_per_sample = 1;
+		block.num_deltas = 2;
+		codes_per_byte = 8;
 	}
 	else if (!strcmp("ss1c", argv[1]))
 	{
 		bits_per_sample = 1;
+		block.num_deltas = 2;
+		codes_per_byte = 8;
 		comb_filter = TRUE;
+	}
+	else if (!strcmp("ss1.6", argv[1]))
+	{
+		bits_per_sample = 0;
+		block.num_deltas = 3;
+		codes_per_byte = 5;
+		block.length = 80;
 	}
 	else if (!strcmp("ss2", argv[1]))
 	{
 		bits_per_sample = 2;
+		block.num_deltas = 4;
+		codes_per_byte = 4;
 	}
 	else
 	{
 		bits_per_sample = 0;
+		block.num_deltas = 0;
+		codes_per_byte = 0;
 		exit_error(usage, NULL);
 	}
-	
-	block.num_deltas = bits_per_sample * 2;
 	
 	if (comb_filter)
 	{
@@ -131,7 +147,7 @@ main (int argc, char **argv)
 		exit_error("Could not read input file", strerror(errno));
 	}
 	
-	read_data = fread(u8_buffer, sizeof(uint8_t), sizeof(u8_buffer), infile);
+	read_data = fread(u8_buffer, sizeof(uint8_t), block.length, infile);
 	block.initial_sample = u8_buffer[0] >> 1;
 	temp_initial_sample = block.initial_sample;
 	
@@ -139,7 +155,7 @@ main (int argc, char **argv)
 		out_decoded_suffix);
 	out_decoded = fopen(out_decoded_name, "wb");
 	
-	while (read_data == sizeof(u8_buffer))
+	while (read_data == block.length)
 	{
 		sample_t temp_last_sample = block.initial_sample;
 		snprintf(out_bitstream_name, outname_length + sizeof(out_bitstream_suffix) + 19, "%s_%d_%s", argv[3],
@@ -157,13 +173,13 @@ main (int argc, char **argv)
 			exit_error("Could not open output files", strerror(errno));
 		}
 		
-		for (block_count = 0; block_count < 256 && read_data == sizeof(u8_buffer); block_count++)
+		for (block_count = 0; block_count < 256 && read_data == block.length; block_count++)
 		{
 			size_t i;
 			fprintf(stderr, "\rEncoding block %d:%d...", superblock_index, block_count);
-			sample_convert_u8_to_u7(u8_buffer, u8_buffer, sizeof(u8_buffer));
-			sample_decode_u8(sample_buffer, u8_buffer, sizeof(u8_buffer));
-			(void) ssdpcm_encode_bruteforce(&block, sample_buffer, &sigma);
+			sample_convert_u8_to_u7(u8_buffer, u8_buffer, block.length);
+			sample_decode_u8(sample_buffer, u8_buffer, block.length);
+			(void) ssdpcm_encode_binary_search(&block, sample_buffer, &sigma);
 			
 			for (i = 0; i < block.num_deltas / 2; i++)
 			{
@@ -172,36 +188,47 @@ main (int argc, char **argv)
 			}
 			
 			ssdpcm_block_decode(sample_buffer, &block);
-			temp_last_sample = sample_buffer[sizeof(u8_buffer) - 1];
+			temp_last_sample = sample_buffer[block.length - 1];
 			
 			encoded_buffer.byte_buf.offset = 0;
 			encoded_buffer.bit_index = 0;
 			memset(encoded_data, 0, sizeof(encoded_data));
 			
-			for (i = 0; i < block.length; i++)
+			if (bits_per_sample > 0)
 			{
-				err_t rc = put_bits_msbfirst(&encoded_buffer, block.deltas[i], bits_per_sample);
-				if (rc != E_OK)
+				for (i = 0; i < block.length; i++)
 				{
-					fprintf(stderr, "\nrc = %d", rc);
-					exit_error("put_bits_msbfirst returned non-ok status", NULL);
+					err_t rc = put_bits_msbfirst(&encoded_buffer, block.deltas[i], bits_per_sample);
+					if (rc != E_OK)
+					{
+						fprintf(stderr, "\nrc = %d", rc);
+						exit_error("put_bits_msbfirst returned non-ok status", NULL);
+					}
+				}
+			}
+			else
+			{
+				switch (block.num_deltas)
+				{
+				case 3:
+					range_encode_ss1_6(block.deltas, encoded_data, block.length);
 				}
 			}
 			
 			fwrite(encoded_data, sizeof(uint8_t),
-			       128 * bits_per_sample / 8, out_bitstream);
+			       block.length / codes_per_byte, out_bitstream);
 			
 			if (comb_filter)
 			{
-				sample_filter_comb(sample_buffer, sizeof(u8_buffer), block.initial_sample);
+				sample_filter_comb(sample_buffer, block.length, block.initial_sample);
 			}
 			block.initial_sample = temp_last_sample;
 			
-			sample_encode_u8_overflow(u8_buffer, sample_buffer, sizeof(u8_buffer));
-			sample_convert_u7_to_u8(u8_buffer, u8_buffer, sizeof(u8_buffer));
-			fwrite(u8_buffer, 1, sizeof(u8_buffer), out_decoded);
+			sample_encode_u8_overflow(u8_buffer, sample_buffer, block.length);
+			sample_convert_u7_to_u8(u8_buffer, u8_buffer, block.length);
+			fwrite(u8_buffer, 1, block.length, out_decoded);
 			
-			read_data = fread(u8_buffer, sizeof(uint8_t), sizeof(u8_buffer), infile);
+			read_data = fread(u8_buffer, sizeof(uint8_t), block.length, infile);
 		}
 		
 		write_block_params(out_params, temp_initial_sample, block_count & 0xff);

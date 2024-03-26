@@ -233,6 +233,11 @@ main (int argc, char **argv)
 	
 	sigma.methods->alloc(&sigma.state);
 	
+	if (!strcmp(outfile_name, infile_name))
+	{
+		exit_error("Input file and output file cannot be the same file!", NULL);
+	}
+	
 	outfile = wav_open(outfile, outfile_name, W_CREATE, &err);
 	if (outfile == NULL)
 	{

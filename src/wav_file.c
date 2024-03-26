@@ -1275,10 +1275,18 @@ wav_write_ssdpcm_block(wav_handle *w, void *reference, void *slopes, void *code,
 	
 	if (index >= 0)
 	{
-		err = wav_seek(w, index * ssdpcm_ex->bytes_per_block, SEEK_SET);
+		err = wav_seek(w, index, SEEK_SET);
 		if (err != E_OK)
 		{
 			return err;
+		}
+		if (channel_idx > 0)
+		{
+			err = fseek(w->fp, sample_size_bytes * (num_channels - 1), SEEK_CUR);
+			if (err != E_OK)
+			{
+				return err;
+			}
 		}
 		initial_offset = wav_tell_bytes(w);
 	}

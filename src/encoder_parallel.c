@@ -26,13 +26,6 @@ exit_error (const char *msg, const char *error)
 	exit(1);
 }
 
-void
-write_block_params (FILE *dest, uint8_t initial_sample, uint8_t length)
-{
-	fprintf(dest, "initial_sample := %hhu\n", initial_sample);
-	fprintf(dest, "length := %hhu\n", length);
-}
-
 static const char usage[] = "\
 \033[97mUsage:\033[0m encoder_parallel (mode) infile.wav outfile.aud\n\
 This encoder takes advantage of multithreading to accelerate encoding of the\n\
@@ -77,6 +70,7 @@ main (int argc, char **argv)
 	int num_deltas;
 	sigma_tracker_methods sigma_methods = NULL;
 	int num_threads;
+	bool stereo = false;
 	bool comb_filter = false;
 	bool decode_mode = false;
 	bool has_reference_sample_on_every_block = false;
@@ -165,12 +159,30 @@ main (int argc, char **argv)
 		mode = wav_get_ssdpcm_mode(infile, &err);
 		block_length = wav_get_ssdpcm_block_length(infile, &err);
 		num_deltas = wav_get_ssdpcm_num_slopes(infile, &err);
+		int num_channels = wav_get_num_channels(infile, &err);
+		if (num_channels == 2)
+		{
+			stereo = true;
+		}
+		if (num_channels > 2)
+		{
+			exit_error("Input file has more than 2 channels - only mono or stereo is supported", NULL);
+		}
 		comb_filter = (mode == SS_SS1C);
 		code_buffer_size = wav_get_ssdpcm_code_bytes_per_block(infile, &err);
 	}
 	else
 	{
 		format = wav_get_format(infile, &err);
+		int num_channels = wav_get_num_channels(infile, &err);
+		if (num_channels == 2)
+		{
+			stereo = true;
+		}
+		if (num_channels > 2)
+		{
+			exit_error("Input file has more than 2 channels - only mono or stereo is supported", NULL);
+		}
 	}
 	
 	switch (format)
@@ -205,6 +217,7 @@ main (int argc, char **argv)
 	}
 	sample_rate = wav_get_sample_rate(infile);
 	wav_set_sample_rate(outfile, sample_rate);
+	wav_set_num_channels(outfile, stereo + 1);
 	
 	if (decode_mode)
 	{
@@ -230,51 +243,57 @@ main (int argc, char **argv)
 	
 #pragma omp parallel firstprivate(err)
 	{
-		void *code_buffer = NULL;
+		void *code_buffer[2] = {NULL, NULL};
 		void *sample_conv_buffer = NULL;
 		bitstream_buffer bitpacker;
-		sample_t *sample_buffer = NULL;
-		codeword_t *delta_buffer = NULL;
-		sample_t slopes[16];
+		sample_t *sample_buffer[2] = {NULL, NULL};
+		codeword_t *delta_buffer[2] = {NULL, NULL};
+		sample_t slopes[2][16];
 		long read_data = 0;
-		ssdpcm_block block;
+		ssdpcm_block block[2];
 		size_t block_index = 0;
 		sigma_tracker sigma;
+		int n;
 		
 		sigma.methods = sigma_methods;
 		sigma.methods->alloc(&sigma.state);
 
-		memset(slopes, 0, sizeof(sample_t) * 16);
+		for (n = 0; n <= stereo; n++)
+		{
+			memset(slopes, 0, sizeof(sample_t) * 16);
+		}
 
 		if (decode_mode)
 		{
-			sample_conv_buffer = malloc(wav_get_sizeof(outfile, block_length));
+			sample_conv_buffer = malloc(wav_get_sizeof(outfile, block_length * (stereo + 1)));
 		}
 		else
 		{
-			sample_conv_buffer = malloc(wav_get_sizeof(infile, block_length));
+			sample_conv_buffer = malloc(wav_get_sizeof(infile, block_length * (stereo + 1)));
 			if (omp_get_thread_num() == 0)
 			{
 				num_threads = omp_get_num_threads();
 				fprintf(stderr, "\rEncoding in parallel with %d threads.\n", num_threads);
 			}
 		}
-		sample_buffer = malloc(sizeof(sample_t) * block_length);
-		delta_buffer = malloc(sizeof(codeword_t) * block_length);
-		code_buffer = malloc(code_buffer_size);
+		for (n = 0; n <= stereo; n++)
+		{
+			sample_buffer[n] = malloc(sizeof(sample_t) * block_length);
+			delta_buffer[n] = malloc(sizeof(codeword_t) * block_length);
+			code_buffer[n] = malloc(code_buffer_size);
+			block[n].deltas = delta_buffer[n];
+			block[n].slopes = slopes[n];
+			block[n].length = block_length;
+			block[n].num_deltas = num_deltas;
+		}
 
-		block.deltas = delta_buffer;
-		block.slopes = slopes;
-		block.length = block_length;
-		block.num_deltas = num_deltas;
 		memset(&bitpacker, 0, sizeof(bitstream_buffer));
-		bitpacker.byte_buf.buffer = code_buffer;
 		bitpacker.byte_buf.buffer_size = code_buffer_size;
 
 		while (1 || (err == E_OK && ((decode_mode) || (read_data == block_length))))
 		{
 			
-			uint8_t initial_sample_temp[2];
+			uint8_t initial_sample_temp[4];
 			if (!decode_mode)
 			{
 #pragma omp critical
@@ -297,102 +316,119 @@ main (int argc, char **argv)
 					wav_close(outfile, &err);
 					exit_error(err_msg, strerror(errno_copy));
 				}
+				
+				memcpy(initial_sample_temp, sample_conv_buffer, sizeof(initial_sample_temp));
 				switch (format)
 				{
 				case W_U8:
-					sample_decode_u8(sample_buffer, (uint8_t *)sample_conv_buffer, block_length);
-					sample_encode_u8_overflow(initial_sample_temp, sample_buffer, 1);
+					sample_decode_u8_multichannel(sample_buffer, (uint8_t *)sample_conv_buffer, block_length, stereo + 1);
+					for (n = 0; n <= stereo; n++)
+					{
+						block[n].initial_sample = initial_sample_temp[n];
+					}
 					break;
 				case W_S16LE:
-					sample_decode_s16(sample_buffer, (int16_t *)sample_conv_buffer, block_length);
-					sample_encode_s16((int16_t *)initial_sample_temp, sample_buffer, 1);
+					sample_decode_s16_multichannel(sample_buffer, (int16_t *)sample_conv_buffer, block_length, stereo + 1);
+					for (n = 0; n <= stereo; n++)
+					{
+						block[n].initial_sample = ((int16_t *)initial_sample_temp)[n];
+					}
 					break;
 				default:
 					// unreachable
 					break;
 				}
-				block.initial_sample = sample_buffer[0];
+				
+				
 
 #pragma omp critical
 				fprintf(stderr, "\rEncoding block %lu...", block_index);
-				(void) ssdpcm_encode_binary_search(&block, sample_buffer, &sigma);
-				ssdpcm_block_decode(sample_buffer, &block);
-				if (comb_filter)
+				for (n = 0; n <= stereo; n++)
 				{
-					sample_filter_comb(sample_buffer, block_length, block.initial_sample);
+					(void) ssdpcm_encode_binary_search(&block[n], sample_buffer[n], &sigma);
+					ssdpcm_block_decode(sample_buffer[n], &block[n]);
+					if (comb_filter)
+					{
+						sample_filter_comb(sample_buffer[n], block_length, block[n].initial_sample);
+					}
+					
+					
+					bitpacker.byte_buf.buffer = code_buffer[n];
+					bitpacker.byte_buf.offset = 0;
+					bitpacker.bit_index = 0;
+					memset(code_buffer[n], 0, code_buffer_size);
+					switch (mode)
+					{
+					case SS_SS1:
+					case SS_SS1C:
+					{
+						int i;
+						for (i = 0; i < block_length; i++)
+						{
+							err = put_bits_msbfirst(&bitpacker, block[n].deltas[i], 1);
+							if (err != E_OK)
+							{
+								exit_error("Runtime error: put_bits_msbfirst returned non-ok status", error_enum_strs[err]);
+							}
+						}
+						break;
+					}
+					case SS_SS2:
+					{
+						int i;
+						for (i = 0; i < block_length; i++)
+						{
+							err = put_bits_msbfirst(&bitpacker, block[n].deltas[i], 2);
+							if (err != E_OK)
+							{
+								exit_error("Runtime error: put_bits_msbfirst returned non-ok status", error_enum_strs[err]);
+							}
+						}
+						break;
+					}
+					case SS_SS1_6:
+						range_encode_ss1_6(block[n].deltas, (uint8_t *)code_buffer[n], block_length);
+						break;
+					case SS_SS2_3:
+						range_encode_ss2_3(block[n].deltas, (uint8_t *)code_buffer[n], block_length);
+						break;
+					case SS_SS3:
+						range_encode_ss3(block[n].deltas, (uint8_t *)code_buffer[n], block_length);
+						break;
+					default:
+						// unreachable
+						debug_assert(0 && "unexpected SSDPCM mode");
+						break;
+					}
 				}
 				
-				bitpacker.byte_buf.offset = 0;
-				bitpacker.bit_index = 0;
-				memset(code_buffer, 0, code_buffer_size);
-				switch (mode)
+				for (n = 0; n <= stereo; n++)
 				{
-				case SS_SS1:
-				case SS_SS1C:
-				{
-					int i;
-					for (i = 0; i < block_length; i++)
+					switch (format)
 					{
-						err = put_bits_msbfirst(&bitpacker, block.deltas[i], 1);
-						if (err != E_OK)
-						{
-							exit_error("Runtime error: put_bits_msbfirst returned non-ok status", error_enum_strs[err]);
-						}
+					case W_U8:
+						sample_encode_u8_overflow(sample_conv_buffer, block[n].slopes, block[n].num_deltas / 2);
+						break;
+					case W_S16LE:
+						sample_encode_u16(sample_conv_buffer, block[n].slopes, block[n].num_deltas / 2);
+						break;
+					default:
+						// unreachable
+						break;
 					}
-					break;
-				}
-				case SS_SS2:
-				{
-					int i;
-					for (i = 0; i < block_length; i++)
-					{
-						err = put_bits_msbfirst(&bitpacker, block.deltas[i], 2);
-						if (err != E_OK)
-						{
-							exit_error("Runtime error: put_bits_msbfirst returned non-ok status", error_enum_strs[err]);
-						}
-					}
-					break;
-				}
-				case SS_SS1_6:
-					range_encode_ss1_6(block.deltas, (uint8_t *)code_buffer, block_length);
-					break;
-				case SS_SS2_3:
-					range_encode_ss2_3(block.deltas, (uint8_t *)code_buffer, block_length);
-					break;
-				case SS_SS3:
-					range_encode_ss3(block.deltas, (uint8_t *)code_buffer, block_length);
-					break;
-				default:
-					// unreachable
-					debug_assert(0 && "unexpected SSDPCM mode");
-					break;
-				}
-				
-				switch (format)
-				{
-				case W_U8:
-					sample_encode_u8_overflow(sample_conv_buffer, block.slopes, block.num_deltas);
-					break;
-				case W_S16LE:
-					sample_encode_u16(sample_conv_buffer, block.slopes, block.num_deltas / 2);
-					break;
-				default:
-					// unreachable
-					break;
-				}
 				
 #pragma omp critical
-				err = wav_write_ssdpcm_block(outfile, initial_sample_temp, sample_conv_buffer, code_buffer, block_index, 0);
-				if (err != E_OK)
-				{
-					char err_msg[256];
-					int errno_copy = errno;
-					snprintf(err_msg, 256, "Write error (%s)", error_enum_strs[err]);
-					// Try to properly close the WAV file anyway
+					err = wav_write_ssdpcm_block(outfile, initial_sample_temp, sample_conv_buffer, code_buffer[n], block_index * (stereo + 1) + n, n);
+					if (err != E_OK)
+					{
+						char err_msg[256];
+						int errno_copy = errno;
+						snprintf(err_msg, 256, "Write error (%s)", error_enum_strs[err]);
+						// Try to properly close the WAV file anyway
 #pragma omp critical
-					wav_close(outfile, &err);
-					exit_error(err_msg, strerror(errno_copy));
+						wav_close(outfile, &err);
+						exit_error(err_msg, strerror(errno_copy));
+					}
 				}
 			}
 		
@@ -404,7 +440,14 @@ main (int argc, char **argv)
 				{
 //#pragma omp atomic capture
 					{ block_index = block_count; block_count++; }
-					err = wav_read_ssdpcm_block(infile, initial_sample_temp, sample_conv_buffer, code_buffer, 0);
+					for (n = 0; n <= stereo; n++)
+					{
+						err = wav_read_ssdpcm_block(infile, initial_sample_temp + n * 2, sample_conv_buffer + n * (num_deltas / 2) * 4, code_buffer[n], n);
+						if (err != E_OK)
+						{
+							break;
+						}
+					}
 				}
 				if (err != E_OK)
 				{
@@ -420,87 +463,93 @@ main (int argc, char **argv)
 					wav_close(outfile, &err);
 					exit_error(err_msg, strerror(errno_copy));
 				}
-				switch (format)
+				for (n = 0; n <= stereo; n++)
 				{
-				case W_U8:
-					sample_decode_u8(block.slopes, sample_conv_buffer, block.num_deltas / 2);
-					if (has_reference_sample_on_every_block)
+					switch (format)
 					{
-						sample_decode_u8(&block.initial_sample, initial_sample_temp, 1);
-					}
-					break;
-				case W_S16LE:
-					sample_decode_u16(block.slopes, sample_conv_buffer, block.num_deltas / 2);
-					if (has_reference_sample_on_every_block)
-					{
-						sample_decode_s16(&block.initial_sample, (int16_t *)initial_sample_temp, 1);
-					}
-					break;
-				default:
-					// unreachable
-					break;
-				}
-				
-				bitpacker.byte_buf.offset = 0;
-				bitpacker.bit_index = 0;
-				switch (mode)
-				{
-				case SS_SS1:
-				case SS_SS1C:
-					for (i = 0; i < block_length; i++)
-					{
-						err = get_bits_msbfirst(&block.deltas[i], &bitpacker, 1);
-						if (err != E_OK)
+					case W_U8:
+						sample_decode_u8(block[n].slopes, sample_conv_buffer + n * (num_deltas / 2) * 4, block[n].num_deltas / 2);
+						if (n == 0 && has_reference_sample_on_every_block)
 						{
-							exit_error("Runtime error: get_bits_msbfirst returned non-ok status", error_enum_strs[err]);
+							sample_decode_u8(&block[0].initial_sample, initial_sample_temp, 1);
+							sample_decode_u8(&block[1].initial_sample, initial_sample_temp + 2, 1);
 						}
-					}
-					break;
-				case SS_SS2:
-					for (i = 0; i < block_length; i++)
-					{
-						err = get_bits_msbfirst(&block.deltas[i], &bitpacker, 2);
-						if (err != E_OK)
+						break;
+					case W_S16LE:
+						sample_decode_u16(block[n].slopes, sample_conv_buffer + n * (num_deltas / 2) * 4, block[n].num_deltas / 2);
+						if (n == 0 && has_reference_sample_on_every_block)
 						{
-							exit_error("Runtime error: get_bits_msbfirst returned non-ok status", error_enum_strs[err]);
+							sample_decode_s16(&block[0].initial_sample, (int16_t *)initial_sample_temp, 1);
+							sample_decode_s16(&block[1].initial_sample, ((int16_t *)initial_sample_temp) + 1, 1);
 						}
+						break;
+					default:
+						// unreachable
+						break;
 					}
-					break;
-				case SS_SS1_6:
-					range_decode_ss1_6((uint8_t *)code_buffer, block.deltas, code_buffer_size);
-					break;
-				case SS_SS2_3:
-					range_decode_ss2_3((uint8_t *)code_buffer, block.deltas, code_buffer_size);
-					break;
-				case SS_SS3:
-					range_decode_ss3((uint8_t *)code_buffer, block.deltas, code_buffer_size);
-					break;
-				default:
-					// unreachable
-					debug_assert(0 && "unexpected SSDPCM mode");
-					break;
-				}
-				
-				for (i = 0; i < block.num_deltas / 2; i++)
-				{
-					block.slopes[i + block.num_deltas / 2] = -block.slopes[i];
-				}
+					
+					bitpacker.byte_buf.buffer = code_buffer[n];
+					bitpacker.byte_buf.offset = 0;
+					bitpacker.bit_index = 0;
+					switch (mode)
+					{
+					case SS_SS1:
+					case SS_SS1C:
+						for (i = 0; i < block_length; i++)
+						{
+							err = get_bits_msbfirst(&block[n].deltas[i], &bitpacker, 1);
+							if (err != E_OK)
+							{
+								exit_error("Runtime error: get_bits_msbfirst returned non-ok status", error_enum_strs[err]);
+							}
+						}
+						break;
+					case SS_SS2:
+						for (i = 0; i < block_length; i++)
+						{
+							err = get_bits_msbfirst(&block[n].deltas[i], &bitpacker, 2);
+							if (err != E_OK)
+							{
+								exit_error("Runtime error: get_bits_msbfirst returned non-ok status", error_enum_strs[err]);
+							}
+						}
+						break;
+					case SS_SS1_6:
+						range_decode_ss1_6((uint8_t *)code_buffer[n], block[n].deltas, code_buffer_size);
+						break;
+					case SS_SS2_3:
+						range_decode_ss2_3((uint8_t *)code_buffer[n], block[n].deltas, code_buffer_size);
+						break;
+					case SS_SS3:
+						range_decode_ss3((uint8_t *)code_buffer[n], block[n].deltas, code_buffer_size);
+						break;
+					default:
+						// unreachable
+						debug_assert(0 && "unexpected SSDPCM mode");
+						break;
+					}
+					
+					for (i = 0; i < block[n].num_deltas / 2; i++)
+					{
+						block[n].slopes[i + block[n].num_deltas / 2] = -block[n].slopes[i];
+					}
 				
 //#pragma omp critical
-				fprintf(stderr, "\rDecoding block %lu...", block_index);
-				ssdpcm_block_decode(sample_buffer, &block);
-				if (comb_filter)
-				{
-					sample_filter_comb(sample_buffer, block_length, block.initial_sample);
+					fprintf(stderr, "\rDecoding block %lu...", block_index);
+					ssdpcm_block_decode(sample_buffer[n], &block[n]);
+					if (comb_filter)
+					{
+						sample_filter_comb(sample_buffer[n], block_length, block[n].initial_sample);
+					}
 				}
 				
 				switch (format)
 				{
 				case W_U8:
-					sample_encode_u8_overflow((uint8_t *)sample_conv_buffer, sample_buffer, block_length);
+					sample_encode_u8_overflow_multichannel((uint8_t *)sample_conv_buffer, sample_buffer, block_length, stereo + 1);
 					break;
 				case W_S16LE:
-					sample_encode_s16((int16_t *)sample_conv_buffer, sample_buffer, block_length);
+					sample_encode_s16_multichannel((int16_t *)sample_conv_buffer, sample_buffer, block_length, stereo + 1);
 					break;
 				default:
 					// unreachable
@@ -522,11 +571,14 @@ main (int argc, char **argv)
 			}
 		}
 
-		free(code_buffer);
-		free(sample_conv_buffer);
-		free(sample_buffer);
-		free(delta_buffer);
+		for (n = 0; n <= stereo; n++)
+		{
+			free(code_buffer[n]);
+			free(sample_buffer[n]);
+			free(delta_buffer[n]);
+		}
 		sigma.methods->free(&(sigma.state));
+		free(sample_conv_buffer);
 	}
 	
 	wav_close(infile, &err);

@@ -103,7 +103,7 @@ The following programs will be compiled:
 
 - `encoder` - This is a SSDPCM encoder/decoder. It supports all of the modes documented above and is able to both **encode** and **decode** files in the format documented above. It supports mono and stereo.
 
-- `encoder_parallel` - This is a paralellized SSDPCM encoder. It also supports all of the modes documented above, but it's most useful for the higher bitrate modes. It generates slightly larger files than the normal encoder, because it has to store reference samples for every block in order to be able to encode them in parallel. It can decode files too, but it's not parallelized for that and it's a bit slower than the other program at it. It only supports mono (for now).
+- `encoder_parallel` - This is a paralellized SSDPCM encoder. It also supports all of the modes documented above, but it's most useful for the higher bitrate modes. It generates slightly larger files than the normal encoder, because it has to store reference samples for every block in order to be able to encode them in parallel. It can decode files too, but it's not parallelized for that and it's a bit slower than the other program at it. It supports mono and stereo, too.
 
 - `nes_encoder` - This is a special SSDPCM encoder tailored for my NES SSDPCM sample player. It only supports the subset of the modes that are supported by my sample player. It does not support WAV input, only raw unsigned 8-bit PCM (I need to change that). And the output it generates is not a single file, but a bunch of small files to be used in the assembly process. It also simultaneously generates a decoded output file so you can hear the result immediately after encoding. It obviously only supports mono, because the NES is mono.
 

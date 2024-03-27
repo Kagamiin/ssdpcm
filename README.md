@@ -30,6 +30,30 @@ SSDPCM requires the encoder to analyze each block of samples and search for the 
 
 Note that if you use 16-bit samples as input, it can take even longer to encode, too, especially for the higher bitrates. Though that's where it makes the most sense to use 16-bit samples.
 
+
+## Usage
+
+To use this repository, you'll need a C compiler and the following tools/libraries:
+
+- GNU Make
+- OpenMP (optional)
+
+If you don't have or don't want to use OpenMP, remove `-fopenmp` from line 23 of the Makefile and remove `encoder_parallel` from line 113.
+
+### Building
+
+To build the executables, simply run `make`. They'll be generated into the `build` directory, which will be automatically created for you.
+
+The following programs will be compiled:
+
+- `encoder` - This is a SSDPCM encoder/decoder. It supports all of the modes documented above and is able to both **encode** and **decode** files in the format documented above. It supports mono and stereo.
+
+- `encoder_parallel` - This is a paralellized SSDPCM encoder. It also supports all of the modes documented above, but it's most useful for the higher bitrate modes. It generates slightly larger files than the normal encoder, because it has to store reference samples for every block in order to be able to encode them in parallel. It can decode files too, but it's not parallelized for that and it's a bit slower than the other program at it. It supports mono and stereo, too.
+
+- `nes_encoder` - This is a special SSDPCM encoder tailored for my NES SSDPCM sample player. It only supports the subset of the modes that are supported by my sample player. It does not support WAV input, only raw unsigned 8-bit PCM (I need to change that). And the output it generates is not a single file, but a bunch of small files to be used in the assembly process. It also simultaneously generates a decoded output file so you can hear the result immediately after encoding. It obviously only supports mono, because the NES is mono.
+
+- `wav_simulator` - This is a toy encoder that can be used to experiment with SSDPCM encoding. It lets you specify the number of slopes directly, and allows you to use comb filtering in any of the modes - so it can actually simulate a lot of SSDPCM bitrates that don't actually exist as a mode (yet, or due to being impractical to pack/unpack). The only disadvantage is that being a toy, it doesn't actually generate an encoded file - it internally encodes and decodes the output, then saves the decoded output as a WAV file. It also only supports mono, because it's an older program that was made before I conceived stereo encoding for SSDPCM.
+
 ## SSDPCM file format specification
 
 SSDPCM can be stored in quite a few ways, as long as it's convenient enough for playback. For instance, `nes_encoder.c` illustrates a quite unorthodox way of storing SSDPCM - where bitstream and slope data is stripped apart into a bunch of separate binary files, to be later assembled into a NES ROM. Such method happens to be quite convenient for making NES sample players using my own tool (<https://github.com/Kagamiin/ssplayer-nes>).
@@ -56,7 +80,7 @@ NOTE: All values are little-endian unless specified.
 | `nChannels`        | Number of channels (mono or stereo).                                              | 2 bytes  | `1` or `2`           |
 | `nSamplesPerSec`   | Sampling rate.                                                                    | 4 bytes  | Any unsigned integer |
 | `nAvgBytesPerSec`  | Average bitrate divided by 8, rounded down.                                       | 4 bytes  | The expected value.  |
-| `nBlockAlign`      | Number of bytes per block of samples, including slopes and references if present. | 2 bytes  | The expected value.  |
+| `nBlockAlign`      | Number of bytes per SSDPCM frame - not per block, read further for more info.     | 2 bytes  | (`bytes_per_block` * `nChannels`) + (`bits_per_output_sample` * `has_reference_sample_on_every_block` * `nChannels` / 8) |
 | `wBitsPerSample`   | Unused - my SSDPCM implementation has fractional bit-per-sample values.           | 2 bytes  | `0`                  |
 | `cbSize`           | Length of the following extra data after the WAVEFORMATEX header.                 | 2 bytes  | `0x26`               |
 | `wSamplesPerBlock` | Number of samples per block.                                                      | 2 bytes  | Any unsigned integer that's a multiple of the number of samples that fit in bytes_per_read_alignment (see below). |
@@ -82,30 +106,66 @@ Possible values for `mode_fourcc`:
 - `ss2 ` - 2-bit SSDPCM
   - Implies `num_slopes` = `4`, `bytes_per_read_alignment` = `1`
 - `s2.3` - 2.3-bit SSDPCM
-  - Implies `num_slopes` = `5`, `bytes_per_read_alignment` = `3`
+  - Implies `num_slopes` = `5`, `bytes_per_read_alignment` = `7`
 - `ss3 ` - 3-bit SSDPCM
-  - Implies `num_slopes` = `8`, `bytes_per_read_alignment` = `7`
+  - Implies `num_slopes` = `8`, `bytes_per_read_alignment` = `3`
 
-## Usage
+## Bitstream specification
 
-To use this repository, you'll need a C compiler and the following tools/libraries:
+SSDPCM is divided into byte-aligned blocks of samples. One or more blocks are grouped into a frame, according to the number of channels in the stream.
 
-- GNU Make
-- OpenMP (optional)
+The structure of a **block** is as follows:
 
-If you don't have or don't want to use OpenMP, remove `-fopenmp` from line 23 of the Makefile and remove `encoder_parallel` from line 113.
+- Block header
+  - Size: `num_slopes` * `bits_per_output_sample` / 8
+  - Contains the first floor(`num_slopes` / 2) slopes for that block
+- Codestream
+  - Size: `bytes_per_block` - (`num_slopes` * `bits_per_output_sample` / 8)
+  - Contains the packed codestream representing the codewords for that block
 
-### Building
+The structure of a **frame** is as follows:
 
-To build the executables, simply run `make`. They'll be generated into the `build` directory, which will be automatically created for you.
+- Reference samples
+  - Size: `bits_per_output_sample` / 8 * `nChannels`
+  - Contains the reference samples for each respective block in this frame
+- Blocks
+  - Size: `bytes_per_block` * `nChannels`
+  - Contains the concatenated blocks as specified above.
 
-The following programs will be compiled:
+### Code packing structure for different modes
 
-- `encoder` - This is a SSDPCM encoder/decoder. It supports all of the modes documented above and is able to both **encode** and **decode** files in the format documented above. It supports mono and stereo.
+#### ss1/ss1c
 
-- `encoder_parallel` - This is a paralellized SSDPCM encoder. It also supports all of the modes documented above, but it's most useful for the higher bitrate modes. It generates slightly larger files than the normal encoder, because it has to store reference samples for every block in order to be able to encode them in parallel. It can decode files too, but it's not parallelized for that and it's a bit slower than the other program at it. It supports mono and stereo, too.
+ss1 and ss1c have identical codestream formats, differing only in how they're encoded and decoded - ss1c is encoded and decoded with an in-loop comb filter, while ss1 isn't.
 
-- `nes_encoder` - This is a special SSDPCM encoder tailored for my NES SSDPCM sample player. It only supports the subset of the modes that are supported by my sample player. It does not support WAV input, only raw unsigned 8-bit PCM (I need to change that). And the output it generates is not a single file, but a bunch of small files to be used in the assembly process. It also simultaneously generates a decoded output file so you can hear the result immediately after encoding. It obviously only supports mono, because the NES is mono.
+ss1 and ss1c's codewords can be either 0 or 1, representing only the sign of the single slope. Those codewords are represented as single bits, where 8 codewords are packed into 1 byte in MSB-first bit endianness.
 
-- `wav_simulator` - This is a toy encoder that can be used to experiment with SSDPCM encoding. It lets you specify the number of slopes directly, and allows you to use comb filtering in any of the modes - so it can actually simulate a lot of SSDPCM bitrates that don't actually exist as a mode (yet, or due to being impractical to pack/unpack). The only disadvantage is that being a toy, it doesn't actually generate an encoded file - it internally encodes and decodes the output, then saves the decoded output as a WAV file. It also only supports mono, because it's an older program that was made before I conceived stereo encoding for SSDPCM.
+#### ss2
 
+ss2's codewords can range from 0 to 3. The first two codewords select the two respective slopes with positive magnitude, and the last two codewords select the same two slopes but with negative magnitude.
+
+Those codewords are represented as 2-bit numbers, where 4 codewords are packed into 1 byte in MSB-first bit endianness.
+
+#### ss1.6
+
+ss1.6's codewords can range from 0 to 2. The first two codewords represent the positive and negative magnitudes of the single slope, while the last codeword represents a zero magnitude.
+
+Those codewords are range-coded together into a single 8-bit value that can range from 0 to 242. Note that when decoding the codewords via standard range code extraction, they must be decoded in reverse order - that is, the fifth code must be extracted first, then the fourth, then the third, then the second, then the first.
+
+#### ss2.3
+
+ss2.3's codewords can range from 0 to 4. The first two codewords represent the positive magnitudes of the two respective slopes, with the next two codewords representing the negative magnitudes of those same slopes, and the last slope representing a zero magnitude.
+
+Those codewords are arranged into groups of 24. Within each group, the 24 codewords are further subdivided into 8 subgroups of 3 codewords, that are range-coded together into a 7-bit value that can range from 0 to 124.
+
+The 8 subgroups are then efficiently packed together into 7 bytes of data in the following manner: the 7-bit values of the first 7 subgroups are first left-shifted by 1 bit. Then for each of those, one bit of the last subgroup, from the least significant to the most significant, is inserted into their least significant bit slot.
+
+#### ss3
+
+ss3's codewords can range from 0 to 7. The first four codewords represent the positive magnitudes of the four respective slopes, while the last four codewords represent the negative magnitudes of those same slopes.
+
+Normally, those codewords could simply be represented as 3-bit numbers. However, for the sake of decoding efficiency on ancient hardware, a different approach is taken to maintain inter-byte alignment:
+
+Those codewords are arranged into groups of 8. Within each group, the 8 codewords are further subdivided into 4 groups of 2 codewords, that are range coded together into a 6-bit value that can range from 0 to 63.
+
+The 4 subgroups are then efficiently packed together into 3 bytes of data in the following manner: the 6-bit values of the first 3 subgroups are first left-shifted by 2 bits. Then for each of those, a group of two bits from the last subgroup, from the least significant to the most significant, is inserted into the least 2 significant bit slots, without swapping the order of the two bits.

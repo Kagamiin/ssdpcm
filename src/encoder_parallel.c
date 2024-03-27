@@ -418,7 +418,7 @@ main (int argc, char **argv)
 					}
 				
 #pragma omp critical
-					err = wav_write_ssdpcm_block(outfile, initial_sample_temp, sample_conv_buffer, code_buffer[n], block_index * (stereo + 1) + n, n);
+					err = wav_write_ssdpcm_block(outfile, initial_sample_temp, sample_conv_buffer, code_buffer[n], block_index, n);
 					if (err != E_OK)
 					{
 						char err_msg[256];

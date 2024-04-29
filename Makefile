@@ -113,16 +113,16 @@ vpath %.o $(BUILD_DIR)
 all: build_dirs $(BUILD_DIR)/nes_encoder $(BUILD_DIR)/wav_simulator $(BUILD_DIR)/encoder $(BUILD_DIR)/encoder_parallel
 
 $(BUILD_DIR)/encoder_parallel: $(objects_encp)
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/encoder_parallel -lm $(patsubst %,$(BUILD_DIR)/%,$(objects_encp))
+	$(CC) $(CFLAGS) -o $(BUILD_DIR)/encoder_parallel $(patsubst %,$(BUILD_DIR)/%,$(objects_encp)) -lm
 
 $(BUILD_DIR)/encoder: $(objects_enc)
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/encoder -lm $(patsubst %,$(BUILD_DIR)/%,$(objects_enc))
+	$(CC) $(CFLAGS) -o $(BUILD_DIR)/encoder $(patsubst %,$(BUILD_DIR)/%,$(objects_enc)) -lm
 
 $(BUILD_DIR)/wav_simulator: $(objects_wave)
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/wav_simulator -lm $(patsubst %,$(BUILD_DIR)/%,$(objects_wave))
+	$(CC) $(CFLAGS) -o $(BUILD_DIR)/wav_simulator $(patsubst %,$(BUILD_DIR)/%,$(objects_wave)) -lm
 
 $(BUILD_DIR)/nes_encoder: $(objects_nes)
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/nes_encoder -lm $(patsubst %,$(BUILD_DIR)/%,$(objects_nes))
+	$(CC) $(CFLAGS) -o $(BUILD_DIR)/nes_encoder $(patsubst %,$(BUILD_DIR)/%,$(objects_nes)) -lm
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $(BUILD_DIR)/$@ $<

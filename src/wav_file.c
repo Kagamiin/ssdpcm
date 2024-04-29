@@ -99,6 +99,23 @@ typedef struct
 	bool header_synced;
 } wav_handle;
 
+/**
+ * Attempts to determine the cause of fseek() or fread() failing.
+ */
+static err_t
+wav_read_eof_error_code_ (wav_handle *w)
+{
+	if (feof(w->fp))
+	{
+		return E_PREMATURE_END_OF_FILE;
+	}
+	if (ferror(w->fp))
+	{
+		return E_READ_ERROR;
+	}
+	return E_UNKNOWN_ERROR;
+}
+
 ssdpcm_block_mode
 wav_get_ssdpcm_mode (wav_handle *w, err_t *err_out)
 {
@@ -145,17 +162,25 @@ wav_read_ssdpcm_extra_chunk_ (wav_handle *w)
 		}
 	}
 	ssdpcm_ex = w->header->ssdpcm_extra_chunk;
-	fread(ssdpcm_ex->mode_fourcc, sizeof(char), 4, w->fp);
+	int x = fread(ssdpcm_ex->mode_fourcc, sizeof(char), 4, w->fp);
+	if (!x)
+	{
+		return wav_read_eof_error_code_(w);
+	}
 	if (wav_get_ssdpcm_mode(w, &err) < 0)
 	{
 		return err;
 	}
-	fread(&ssdpcm_ex->num_slopes, sizeof(uint8_t), 1, w->fp);
-	fread(&ssdpcm_ex->bits_per_output_sample, sizeof(uint8_t), 1, w->fp);
-	fread(&ssdpcm_ex->bytes_per_read_alignment, sizeof(uint8_t), 1, w->fp);
-	fread(&ssdpcm_ex->has_reference_sample_on_every_block, 1, 1, w->fp);
-	fread(&ssdpcm_ex->block_length, sizeof(uint16_t), 1, w->fp);
-	fread(&ssdpcm_ex->bytes_per_block, sizeof(uint16_t), 1, w->fp);
+	x = fread(&ssdpcm_ex->num_slopes, sizeof(uint8_t), 1, w->fp);
+	x = x && fread(&ssdpcm_ex->bits_per_output_sample, sizeof(uint8_t), 1, w->fp);
+	x = x && fread(&ssdpcm_ex->bytes_per_read_alignment, sizeof(uint8_t), 1, w->fp);
+	x = x && fread(&ssdpcm_ex->has_reference_sample_on_every_block, 1, 1, w->fp);
+	x = x && fread(&ssdpcm_ex->block_length, sizeof(uint16_t), 1, w->fp);
+	x = x && fread(&ssdpcm_ex->bytes_per_block, sizeof(uint16_t), 1, w->fp);
+	if (!x)
+	{
+		return wav_read_eof_error_code_(w);
+	}
 	
 	if (ssdpcm_ex->num_slopes > MAX_NUM_SLOPES)
 	{
@@ -172,7 +197,11 @@ wav_read_ssdpcm_extra_chunk_ (wav_handle *w)
 static err_t
 wav_read_waveformatext_chunk_ (wav_handle *w)
 {
-	fread(&w->header->extra_length, sizeof(uint16_t), 1, w->fp);
+	int x = fread(&w->header->extra_length, sizeof(uint16_t), 1, w->fp);
+	if (!x)
+	{
+		return wav_read_eof_error_code_(w);
+	}
 	int64_t chunk_start = ftell(w->fp);
 	wave_format_ex *fmt_ex;
 	if (w->header->fmt_ex_chunk == NULL)
@@ -184,14 +213,23 @@ wav_read_waveformatext_chunk_ (wav_handle *w)
 		}
 	}
 	fmt_ex = w->header->fmt_ex_chunk;
-	fread(&fmt_ex->wfx_18_19.reserved, sizeof(uint16_t), 1, w->fp);
-	fread(&fmt_ex->channel_mask, sizeof(uint32_t), 1, w->fp);
-	fread(fmt_ex->sub_format, sizeof(char), 16, w->fp);
+	x = fread(&fmt_ex->wfx_18_19.reserved, sizeof(uint16_t), 1, w->fp);
+	x = x && fread(&fmt_ex->channel_mask, sizeof(uint32_t), 1, w->fp);
+	x = x && fread(fmt_ex->sub_format, sizeof(char), 16, w->fp) == 16;
+	if (!x)
+	{
+		return wav_read_eof_error_code_(w);
+	}
+
 	if (memcmp(fmt_ex->sub_format, ssdpcm_codec_guid, 16) == 0)
 	{
 		char chunk_id[5];
 		memset(chunk_id, '\0', sizeof(chunk_id));
-		fread(chunk_id, sizeof(char), 4, w->fp);
+		x = fread(chunk_id, sizeof(char), 4, w->fp);
+		if (!x)
+		{
+			return wav_read_eof_error_code_(w);
+		}
 		if (strncmp(chunk_id, ssdpcm_data_chunk_id, sizeof(chunk_id)) == 0)
 		{
 			err_t err = wav_read_ssdpcm_extra_chunk_(w);
@@ -210,9 +248,11 @@ wav_read_waveformatext_chunk_ (wav_handle *w)
 		return E_UNRECOGNIZED_SUBFORMAT;
 	}
 
-	int x = fseek(w->fp, chunk_start + w->header->extra_length, SEEK_SET);
-	debug_assert(x != -1 && "fseek failed");
-	(void) x;
+	x = fseek(w->fp, chunk_start + w->header->extra_length, SEEK_SET);
+	if (x < 0)
+	{
+		return wav_read_eof_error_code_(w);
+	}
 	return E_OK;
 }
 
@@ -225,9 +265,14 @@ wav_read_fmt_chunk_ (wav_handle *w)
 	debug_assert(w->fp != NULL);
 	debug_assert(w->header != NULL);
 	
+	// Header parsing assumes a little-endian machine
 	// fmt chunk length
 	x = fread(&w->header->fmt_length, sizeof(uint32_t), 1, w->fp);
-	debug_assert(x == 1);
+	if (!x)
+	{
+		return wav_read_eof_error_code_(w);
+	}
+
 	int64_t chunk_start = ftell(w->fp);
 	
 	if (w->header->fmt_length < 16)
@@ -235,12 +280,16 @@ wav_read_fmt_chunk_ (wav_handle *w)
 		return E_FMT_CHUNK_TOO_SMALL;
 	}
 	wav_fmt_chunk *chunk = &w->header->fmt_content;
-	fread(&chunk->fmt_type, sizeof(uint16_t), 1, w->fp);
-	fread(&chunk->num_channels, sizeof(uint16_t), 1, w->fp);
-	fread(&chunk->sample_rate, sizeof(uint32_t), 1, w->fp);
-	fread(&chunk->byte_rate, sizeof(uint32_t), 1, w->fp);
-	fread(&chunk->bytes_per_quantum, sizeof(uint16_t), 1, w->fp);
-	fread(&chunk->bits_per_sample, sizeof(uint16_t), 1, w->fp);
+	x = fread(&chunk->fmt_type, sizeof(uint16_t), 1, w->fp);
+	x = x && fread(&chunk->num_channels, sizeof(uint16_t), 1, w->fp);
+	x = x && fread(&chunk->sample_rate, sizeof(uint32_t), 1, w->fp);
+	x = x && fread(&chunk->byte_rate, sizeof(uint32_t), 1, w->fp);
+	x = x && fread(&chunk->bytes_per_quantum, sizeof(uint16_t), 1, w->fp);
+	x = x && fread(&chunk->bits_per_sample, sizeof(uint16_t), 1, w->fp);
+	if (!x)
+	{
+		return wav_read_eof_error_code_(w);
+	}
 
 	if (w->header->fmt_content.fmt_type == wave_format_ex_id)
 	{
@@ -252,8 +301,11 @@ wav_read_fmt_chunk_ (wav_handle *w)
 	}
 
 	x = fseek(w->fp, chunk_start + w->header->fmt_length, SEEK_SET);
-	debug_assert(x != -1 && "fseek failed");
-	
+	if (x < 0)
+	{
+		return wav_read_eof_error_code_(w);
+	}
+
 	if (chunk->fmt_type != 1 && chunk->fmt_type != wave_format_ex_id)
 	{
 		return E_UNRECOGNIZED_FORMAT;
@@ -271,7 +323,6 @@ wav_read_fmt_chunk_ (wav_handle *w)
 		return E_UNSUPPORTED_BITS_PER_SAMPLE;
 	}
 	
-	(void) x;
 	return E_OK;
 }
 
@@ -281,26 +332,15 @@ wav_skip_chunk_anon_ (wav_handle *w)
 	int x;
 	uint32_t chunk_length;
 	x = fread(&chunk_length, sizeof(uint32_t), 1, w->fp);
-	debug_assert(x == 1);
-	x = fseek(w->fp, chunk_length, SEEK_CUR);
-	
-	if (x == -1)
+	if (!x)
 	{
-		if (feof(w->fp))
-		{
-			return E_PREMATURE_END_OF_FILE;
-		}
-		else if (ferror(w->fp))
-		{
-			return E_READ_ERROR;
-		}
-		else
-		{
-			return E_UNKNOWN_ERROR;
-		}
+		return wav_read_eof_error_code_(w);
 	}
-	
-	(void) x;
+	x = fseek(w->fp, chunk_length, SEEK_CUR);
+	if (x < 0)
+	{
+		return wav_read_eof_error_code_(w);
+	}
 	return E_OK;
 }
 
@@ -315,7 +355,9 @@ wav_find_fmt_chunk_ (wav_handle *w)
 	while (!found_fmt_chunk)
 	{
 		x = fread(chunk_id, sizeof(char), 4, w->fp);
-		//debug_assert(x == 4);
+		if (!x) {
+			return wav_read_eof_error_code_(w);
+		}
 		if (strncmp(chunk_id, wav_fmt_chunk_id, sizeof(chunk_id)) == 0)
 		{
 			found_fmt_chunk = true;
@@ -353,7 +395,10 @@ wav_find_data_chunk_ (wav_handle *w)
 	while (!found_data_chunk)
 	{
 		x = fread(chunk_id, sizeof(char), 4, w->fp);
-		debug_assert(x == 4);
+		if (x < 4)
+		{
+			return wav_read_eof_error_code_(w);
+		}
 		if (strncmp(chunk_id, wav_data_chunk_id, sizeof(chunk_id)) == 0)
 		{
 			found_data_chunk = true;
@@ -397,28 +442,37 @@ wav_read_header_ (wav_handle *w)
 	}
 	
 	x = fseek(w->fp, 0, SEEK_SET);
-	debug_assert(x != -1);
+	if (x < 0)
+	{
+		return wav_read_eof_error_code_(w);
+	}
 	memset(chunk_id, '\0', sizeof(chunk_id));
 
 	// RIFF magic ID
-	x = fread(chunk_id, sizeof(char), 4, w->fp);
-	debug_assert(x == 4);
+	x = fread(chunk_id, sizeof(char), 4, w->fp) == 4;
+	if (!x)
+	{
+		return wav_read_eof_error_code_(w);
+	}
 	if (strncmp(chunk_id, riff_magic_id, sizeof(chunk_id)) != 0)
 	{
 		return E_NOT_A_RIFF_FILE;
 	}
+
 	// RIFF payload size
 	x = fread(&w->header->riff_payload_length, sizeof(uint32_t), 1, w->fp);
-	debug_assert(x == 1);
 
 	// WAVE magic ID
-	x = fread(chunk_id, sizeof(char), 4, w->fp);
-	debug_assert(x == 4);
+	x = x && fread(chunk_id, sizeof(char), 4, w->fp) == 4;
+	if (!x)
+	{
+		return wav_read_eof_error_code_(w);
+	}
 	if (strncmp(chunk_id, wav_magic_id, sizeof(chunk_id)) != 0)
 	{
 		return E_NOT_A_WAVE_FILE;
 	}
-	
+
 	// find fmt chunk
 
 	w->no_extra_chunks = true;
@@ -450,7 +504,10 @@ wav_read_header_ (wav_handle *w)
 	}
 	// data chunk length
 	x = fread(&w->header->data_length, sizeof(uint32_t), 1, w->fp);
-	debug_assert(x == 1);
+	if (!x)
+	{
+		return wav_read_eof_error_code_(w);
+	}
 	
 	// file pointer is now positioned at the first data member
 	w->header->data_offset_in_file = ftell(w->fp);

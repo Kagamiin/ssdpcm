@@ -93,7 +93,7 @@ NOTE: All values are little-endian unless specified.
 | `bytes_per_read_alignment` | Determines the minimum packing alignment for reading the codewords.       | 1 byte   | _See below._         |
 | `has_reference_sample_on_every_block` | Determines if every block has a reference sample or not.       | 1 byte   | `0` or `1`           |
 | `block_length`     | Number of samples per block.                                                      | 2 bytes  | Same as wSamplesPerBlock |
-| `bytes_per_block`  | Number of bytes per block.                                                        | 2 bytes  | Same as nBlockAlign  |
+| `bytes_per_block`  | Number of bytes per block.                                                        | 2 bytes  | `num_slopes` * `bits_per_output_sample` / 8 + number of bytes used to represent the `wSamplesPerBlock` codewords (must be a multiple of `bytes_per_read_alignment`) |
 
 Possible values for `mode_fourcc`:
 

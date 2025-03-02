@@ -34,7 +34,7 @@ write_block_params (FILE *dest, uint8_t initial_sample, uint8_t length)
 }
 
 static const char usage[] = "\
-\033[97mUsage:\033[0m encoder (mode) infile.wav outfile.aud [-d|--dither|-nd|--no-dither]\n\
+\033[97mUsage:\033[0m encoder (mode) infile.wav outfile.aud [-d|--dither]\n\
 - Parameters\n\
   - \033[96mmode\033[0m - Selects the encoding mode; the following modes are\n\
     supported (in increasing order of bitrate):\n\
@@ -49,14 +49,14 @@ static const char usage[] = "\
   PCM WAV file for the encoding modes, or an encoded .aud SSDPCM file for the\n\
   decode mode.\n\
 - \033[96moutfile.aud\033[0m is the path for the encoded output file, or the\n\
-  decoded WAV file in the case of the decode mode.\
-- \033[96m-d\033[0m/\033[96m--dither\033[0m enables/disables\n\
-  dithering of the input WAV file to be encoded. It's disabled by default.\n\
-  Use this flag to enable it this behavior.\n\
+  decoded WAV file in the case of the decode mode.\n\
+- \033[96m-d\033[0m/\033[96m--dither\033[0m enables/disables dithering of the input WAV file to be encoded.\n\
+  It's disabled by default. Use this flag to enable this behavior.\n\
   This also takes an optional argument that defines the dithering strength.\n\
-  Valid values range from \033[960\033[0m to \033[96255\033[0m, where \033[960\033[0m is the default and\033[96255\033[0m is insanely strong.\n\
-  \033[96mNOTE:\033[0m dithering is currently not working right and it's not\n\
-  advised to use it.\n\
+  Valid values range from \033[96m0\033[0m to \033[96m255\033[0m, where \033[96m0\033[0m is the default and \033[96m255\033[0m is insanely\n\
+  strong.\n\
+  \033[96mNOTE:\033[0m dithering is currently not working right and it's not advised to\n\
+  use it.\n\
 ";
 
 #define SAMPLES_PER_BLOCK 128

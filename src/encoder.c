@@ -34,7 +34,7 @@ write_block_params (FILE *dest, uint8_t initial_sample, uint8_t length)
 }
 
 static const char usage[] = "\
-\033[97mUsage:\033[0m encoder (mode) infile.wav outfile.aud [-d|--dither]\n\
+\033[97mUsage:\033[0m encoder (mode) infile.wav outfile.aud [-d|--dither [strength]]\n\
 - Parameters\n\
   - \033[96mmode\033[0m - Selects the encoding mode; the following modes are\n\
     supported (in increasing order of bitrate):\n\

@@ -25,4 +25,6 @@ void sample_convert_u7_to_u8 (uint8_t *dest, uint8_t *src, size_t num_samples);
 
 void sample_filter_comb (sample_t *dest, size_t num_samples, sample_t starting_sample);
 
+void sample_dither_triangular (sample_t **dest, sample_t **src, size_t num_samples, size_t num_channels, uint8_t strength, sample_t clamp_low, sample_t clamp_high);
+
 #endif // #ifndef __SAMPLE_H__

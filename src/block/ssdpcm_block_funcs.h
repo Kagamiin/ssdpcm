@@ -1,10 +1,10 @@
 #ifndef __SSDPCM_BLOCK_FUNCS_H__
 #define __SSDPCM_BLOCK_FUNCS_H__
 
+#include "block.h"
+#include "encode.h"
+#include "errors.h"
 #include <stdint.h>
-#include <block.h>
-#include <encode.h>
-#include <errors.h>
 #include <types.h>
 
 typedef struct {

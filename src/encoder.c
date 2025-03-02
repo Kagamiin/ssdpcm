@@ -1,5 +1,6 @@
 
 #include "types.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,7 +34,7 @@ write_block_params (FILE *dest, uint8_t initial_sample, uint8_t length)
 }
 
 static const char usage[] = "\
-\033[97mUsage:\033[0m encoder (mode) infile.wav outfile.aud\n\
+\033[97mUsage:\033[0m encoder (mode) infile.wav outfile.aud [-d|--dither|-nd|--no-dither]\n\
 - Parameters\n\
   - \033[96mmode\033[0m - Selects the encoding mode; the following modes are\n\
     supported (in increasing order of bitrate):\n\
@@ -48,7 +49,15 @@ static const char usage[] = "\
   PCM WAV file for the encoding modes, or an encoded .aud SSDPCM file for the\n\
   decode mode.\n\
 - \033[96moutfile.aud\033[0m is the path for the encoded output file, or the\n\
-  decoded WAV file in the case of the decode mode.";
+  decoded WAV file in the case of the decode mode.\
+- \033[96m-d\033[0m/\033[96m--dither\033[0m enables/disables\n\
+  dithering of the input WAV file to be encoded. It's disabled by default.\n\
+  Use this flag to enable it this behavior.\n\
+  This also takes an optional argument that defines the dithering strength.\n\
+  Valid values range from \033[960\033[0m to \033[96255\033[0m, where \033[960\033[0m is the default and\033[96255\033[0m is insanely strong.\n\
+  \033[96mNOTE:\033[0m dithering is currently not working right and it's not\n\
+  advised to use it.\n\
+";
 
 #define SAMPLES_PER_BLOCK 128
 
@@ -65,7 +74,7 @@ main (int argc, char **argv)
 	wav_sample_fmt format;
 	ssdpcm_block_mode mode;
 	uint32_t sample_rate;
-	size_t code_buffer_size;
+	size_t code_buffer_size = 0;
 	long block_length;
 	int num_deltas;
 	int i;
@@ -75,9 +84,10 @@ main (int argc, char **argv)
 	bool has_reference_sample_on_every_block = false;
 	
 	void *code_buffer[2];
-	void *sample_conv_buffer;
+	void *sample_conv_buffer = NULL;
 	bitstream_buffer bitpacker;
 	sample_t *sample_buffer[2];
+	sample_t *dither_buffer[2];
 	codeword_t *delta_buffer[2];
 	sample_t slopes[2][16];
 	sigma_tracker sigma;
@@ -85,10 +95,13 @@ main (int argc, char **argv)
 	sample_t temp_last_sample[2];
 	err_t err;
 	
+	bool dither = false;
+	uint8_t dither_strength = 0;
+	
 	memset(slopes[0], 0, sizeof(sample_t) * 16);
 	memset(slopes[1], 0, sizeof(sample_t) * 16);
 	
-	if (argc != 4)
+	if (argc < 4 || argc > 6)
 	{
 		exit_error(usage, NULL);
 	}
@@ -140,6 +153,28 @@ main (int argc, char **argv)
 		exit_error(usage, NULL);
 	}
 	
+	if (argc > 4)
+	{
+		bool is_dither_arg = !strcmp("-d", argv[4]) || !strcmp("--dither", argv[4]);
+		if (is_dither_arg)
+		{
+			dither = true;
+		}
+		else
+		{
+			fprintf(stderr, "Invalid dither argument '%s'.\n", argv[4]);
+			exit_error(usage, NULL);
+		}
+		if (argc > 5) {
+			int result = sscanf(argv[5], "%hhu", &dither_strength);
+			if (result != 1)
+			{
+				fprintf(stderr, "Invalid dither strength '%s'.\n", argv[5]);
+				exit_error(usage, NULL);
+			}
+		}
+	}
+	
 	infile_name = argv[2];
 	outfile_name = argv[3];
 	
@@ -183,6 +218,7 @@ main (int argc, char **argv)
 		{
 			code_buffer[i] = malloc(code_buffer_size);
 			sample_buffer[i] = malloc(sizeof(sample_t) * block_length);
+			dither_buffer[i] = malloc(sizeof(sample_t) * block_length);
 			delta_buffer[i] = malloc(sizeof(codeword_t) * block_length);
 		}
 	}
@@ -263,6 +299,7 @@ main (int argc, char **argv)
 		{
 			code_buffer[i] = malloc(code_buffer_size);
 			sample_buffer[i] = malloc(sizeof(sample_t) * block_length);
+			dither_buffer[i] = malloc(sizeof(sample_t) * block_length);
 			delta_buffer[i] = malloc(sizeof(codeword_t) * block_length);
 		}
 	}
@@ -351,10 +388,26 @@ main (int argc, char **argv)
 			switch (format)
 			{
 			case W_U8:
-				sample_decode_u8_multichannel(sample_buffer, (uint8_t *)sample_conv_buffer, block_length, stereo + 1);
+				if (dither)
+				{
+					sample_decode_u8_multichannel(dither_buffer, (uint8_t *)sample_conv_buffer, block_length, stereo + 1);
+					sample_dither_triangular(sample_buffer, dither_buffer, block_length, stereo + 1, dither_strength, 0, UINT8_MAX);
+				}
+				else
+				{
+					sample_decode_u8_multichannel(sample_buffer, (uint8_t *)sample_conv_buffer, block_length, stereo + 1);
+				}
 				break;
 			case W_S16LE:
-				sample_decode_s16_multichannel(sample_buffer, (int16_t *)sample_conv_buffer, block_length, stereo + 1);
+				if (dither)
+				{
+					sample_decode_s16_multichannel(dither_buffer, (int16_t *)sample_conv_buffer, block_length, stereo + 1);
+					sample_dither_triangular(sample_buffer, dither_buffer, block_length, stereo + 1, dither_strength, INT16_MIN, INT16_MAX);
+				}
+				else
+				{
+					sample_decode_s16_multichannel(sample_buffer, (int16_t *)sample_conv_buffer, block_length, stereo + 1);
+				}
 				break;
 			default:
 				// unreachable

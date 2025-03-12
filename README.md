@@ -150,13 +150,13 @@ Those codewords are represented as 2-bit numbers, where 4 codewords are packed i
 
 ss1.6's codewords can range from 0 to 2. The first two codewords represent the positive and negative magnitudes of the single slope, while the last codeword represents a zero magnitude.
 
-Those codewords are range-coded together into a single 8-bit value that can range from 0 to 242. Note that when decoding the codewords via standard range code extraction, they must be decoded in reverse order - that is, the fifth code must be extracted first, then the fourth, then the third, then the second, then the first.
+Those codewords are range-coded together into a single 8-bit value that can range from 0 to 242. Note that when decoding the codewords via standard range code extraction (i.e. repeated modulo/division by 3), they must be decoded in reverse order - that is, the fifth code must be extracted first, then the fourth, then the third, then the second, then the first.
 
 #### ss2.3
 
 ss2.3's codewords can range from 0 to 4. The first two codewords represent the positive magnitudes of the two respective slopes, with the next two codewords representing the negative magnitudes of those same slopes, and the last slope representing a zero magnitude.
 
-Those codewords are arranged into groups of 24. Within each group, the 24 codewords are further subdivided into 8 subgroups of 3 codewords, that are range-coded together into a 7-bit value that can range from 0 to 124.
+Those codewords are arranged into groups of 24. Within each group, the 24 codewords are further subdivided into 8 subgroups of 3 codewords, each of which are range-coded together into a 7-bit value that can range from 0 to 124. The same range coding method used above for ss1.6 is used here, where codewords must be extracted in reverse order if using standard range code extraction.
 
 The 8 subgroups are then efficiently packed together into 7 bytes of data in the following manner: the 7-bit values of the first 7 subgroups are first left-shifted by 1 bit. Then for each of those, one bit of the last subgroup, from the least significant to the most significant, is inserted into their least significant bit slot.
 
@@ -166,7 +166,7 @@ ss3's codewords can range from 0 to 7. The first four codewords represent the po
 
 Normally, those codewords could simply be represented as 3-bit numbers. However, for the sake of decoding efficiency on ancient hardware, a different approach is taken to maintain inter-byte alignment:
 
-Those codewords are arranged into groups of 8. Within each group, the 8 codewords are further subdivided into 4 groups of 2 codewords, that are range coded together into a 6-bit value that can range from 0 to 63.
+Those codewords are arranged into groups of 8. Within each group, the 8 codewords are further subdivided into 4 groups of 2 codewords, that are range coded together into a 6-bit value that can range from 0 to 63. The same range coding method used above for ss1.6 is used here, where codewords must be extracted in reverse order if using standard range code extraction.
 
 The 4 subgroups are then efficiently packed together into 3 bytes of data in the following manner: the 6-bit values of the first 3 subgroups are first left-shifted by 2 bits. Then for each of those, a group of two bits from the last subgroup, from the least significant to the most significant, is inserted into the least 2 significant bit slots, without swapping the order of the two bits.
 

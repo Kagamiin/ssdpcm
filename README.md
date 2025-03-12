@@ -172,8 +172,9 @@ The 4 subgroups are then efficiently packed together into 3 bytes of data in the
 
 ## Licensing
 
-ssdpcm: reference implementation for the SSDPCM audio codec designed by Algorithm.
-Copyright (C) 2022-2025 Kagamiin~.
+**ssdpcm**: implementation of the SSDPCM audio codec designed by Algorithm.
+
+Copyright (C) 2022-2025 Kagamiin~
 
 All code in the ssdpcm repository, with the exception of [verify.h](src/include/verify.h), is licensed under the [GNU General Public License v3-or-later](COPYING) (also available online, [here](https://www.gnu.org/licenses/gpl-3.0.html)).
 

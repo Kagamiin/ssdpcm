@@ -1,6 +1,5 @@
 /*
- * ssdpcm: reference implementation for the SSDPCM audio codec designed by
- * Algorithm.
+ * ssdpcm: implementation of the SSDPCM audio codec designed by Algorithm.
  * Copyright (C) 2022-2025 Kagamiin~
  * 
  * This program is free software: you can redistribute it and/or modify

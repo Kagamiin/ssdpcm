@@ -169,3 +169,14 @@ Normally, those codewords could simply be represented as 3-bit numbers. However,
 Those codewords are arranged into groups of 8. Within each group, the 8 codewords are further subdivided into 4 groups of 2 codewords, that are range coded together into a 6-bit value that can range from 0 to 63.
 
 The 4 subgroups are then efficiently packed together into 3 bytes of data in the following manner: the 6-bit values of the first 3 subgroups are first left-shifted by 2 bits. Then for each of those, a group of two bits from the last subgroup, from the least significant to the most significant, is inserted into the least 2 significant bit slots, without swapping the order of the two bits.
+
+## Licensing
+
+ssdpcm: reference implementation for the SSDPCM audio codec designed by Algorithm.
+Copyright (C) 2022-2025 Kagamiin~.
+
+All code in the ssdpcm repository, with the exception of [verify.h](src/include/verify.h), is licensed under the [GNU General Public License v3-or-later](COPYING) (also available online, [here](https://www.gnu.org/licenses/gpl-3.0.html)).
+
+This document (README.md), however, is openly licensed via [CC0](https://creativecommons.org/publicdomain/zero/1.0/).
+
+[verify.h](src/include/verify.h) is (C) 2005-2006, 2009-2022 Free Software Foundation, Inc. and is licensed under the [GNU Lesser General Public License v2.1-or-later](https://www.gnu.org/licenses/lgpl-2.1.html).
